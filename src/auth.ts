@@ -2,6 +2,7 @@ import NextAuth, { type DefaultSession } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import { z } from "zod";
+import { serverEnv } from "@/lib/serverEnv";
 
 /**
  * Auth.js configuration.
@@ -15,8 +16,9 @@ import { z } from "zod";
  * session strategy needs an adapter, and an adapter needs a database.
  */
 
-const BACKEND_URL = process.env["BACKEND_URL"] ?? "http://localhost:4000";
-const SERVICE_TOKEN = process.env["SERVICE_TOKEN"] ?? "";
+// No fallbacks. A `?? "http://localhost:4000"` here means "if you forget to configure me, quietly talk
+// to the wrong machine" — which on a serverless function is the function's own container. See
+// lib/serverEnv.ts; that default cost a production sign-up outage that looked like an application bug.
 
 const CredentialsSchema = z.object({
   email: z.email(),
@@ -37,13 +39,13 @@ declare module "next-auth" {
 }
 
 async function callBackend<T>(path: string, body: unknown): Promise<T | null> {
-  const response = await fetch(`${BACKEND_URL}${path}`, {
+  const response = await fetch(`${serverEnv.backendUrl}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       // The service token. Powerful (it can mint users), so it lives only on the server — this file
       // never runs in the browser, and the value is never in a NEXT_PUBLIC_ variable.
-      "X-Service-Token": SERVICE_TOKEN,
+      "X-Service-Token": serverEnv.serviceToken,
     },
     body: JSON.stringify(body),
     cache: "no-store",

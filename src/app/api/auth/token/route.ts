@@ -2,6 +2,7 @@ import { SignJWT } from "jose";
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
+import { serverEnv } from "@/lib/serverEnv";
 
 /**
  * The token exchange (DECISIONS.md D-001b).
@@ -25,11 +26,15 @@ import { auth } from "@/auth";
  *    a leak — and 15 minutes is a survivable one. The client silently re-mints from the cookie.
  */
 
-const SECRET = new TextEncoder().encode(process.env["API_JWT_SECRET"] ?? "");
-const ISSUER = process.env["API_JWT_ISSUER"] ?? "vellum-web";
-const AUDIENCE = process.env["API_JWT_AUDIENCE"] ?? "vellum-api";
-
 export async function GET(): Promise<NextResponse> {
+  // Read per-request, and fail closed. `API_JWT_SECRET ?? ""` — the previous form — does not fail: it
+  // signs a real token with an EMPTY secret. The token is minted, sent, and rejected by the backend as
+  // unauthorized, so the investigation begins in the auth code while the cause is an unset variable.
+  // A signing key is the last place in a system that should have a default.
+  const SECRET = new TextEncoder().encode(serverEnv.apiJwtSecret);
+  const ISSUER = serverEnv.apiJwtIssuer;
+  const AUDIENCE = serverEnv.apiJwtAudience;
+
   const session = await auth();
 
   if (session?.user?.id === undefined || session.user.email === null) {

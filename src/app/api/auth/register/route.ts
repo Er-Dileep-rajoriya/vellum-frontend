@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { serverEnv } from "@/lib/serverEnv";
 
 /**
  * Registration proxy.
@@ -19,9 +20,6 @@ const RegisterSchema = z.object({
   password: z.string().min(12).max(200),
 });
 
-const BACKEND_URL = process.env["BACKEND_URL"] ?? "http://localhost:4000";
-const SERVICE_TOKEN = process.env["SERVICE_TOKEN"] ?? "";
-
 export async function POST(request: Request): Promise<NextResponse> {
   const body: unknown = await request.json().catch(() => null);
   const parsed = RegisterSchema.safeParse(body);
@@ -30,11 +28,17 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Check the details and try again." }, { status: 400 });
   }
 
-  const response = await fetch(`${BACKEND_URL}/api/internal/users/register`, {
+  // Read at request time, not at module scope: on Vercel a module-scope throw happens during the build's
+  // page-data collection, which fails the *build* with a stack trace instead of the deployment with a
+  // clear message. Here it fails the one request that needed it, and logs the variable's name.
+  const backendUrl = serverEnv.backendUrl;
+  const serviceToken = serverEnv.serviceToken;
+
+  const response = await fetch(`${backendUrl}/api/internal/users/register`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Service-Token": SERVICE_TOKEN,
+      "X-Service-Token": serviceToken,
     },
     body: JSON.stringify(parsed.data),
     cache: "no-store",
