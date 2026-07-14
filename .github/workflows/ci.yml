@@ -24,6 +24,17 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Fail loudly, at the start, rather than shipping a bundle that points at nowhere. A missing
+      # NEXT_PUBLIC_* is invisible: the build succeeds, the app deploys, and every API call goes to the
+      # empty origin. This is the cheapest possible place to catch that.
+      - name: Require NEXT_PUBLIC_API_URL
+        run: |
+          if [ -z "${{ secrets.NEXT_PUBLIC_API_URL }}" ]; then
+            echo "NEXT_PUBLIC_API_URL is not set. It is baked into the client bundle at build time —"
+            echo "an empty value produces a green build that ships an app which cannot reach the API."
+            exit 1
+          fi
+
       - run: pnpm lint
       - run: pnpm typecheck
 
@@ -38,9 +49,14 @@ jobs:
       # regression rather than on a busy runner.
       - run: pnpm bench
 
+      # Baked into the bundle at BUILD time, not read at runtime — so it has to be present here, and an
+      # empty value produces a green build that ships an app pointing at a blank origin. Stored as a
+      # repository *secret* rather than a variable: it is not sensitive (the browser sees it), but keeping
+      # both namespaces in play is how you end up reading `vars.X` when the value lives in `secrets.X` and
+      # silently building with an empty string.
       - run: pnpm build
         env:
-          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
 
   deploy:
     name: deploy → Vercel
