@@ -73,9 +73,20 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # pnpm must exist in THIS job too.
+      #
+      # `vercel build` does not bundle a package manager — it reads `packageManager` from package.json and
+      # shells out to it. Without pnpm on PATH that is `spawn pnpm ENOENT`, which reads like a Vercel
+      # problem and is really a missing tool on the runner. The test job had pnpm; this one did not, and
+      # jobs share nothing but the repository.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
 
       # Vercel builds and hosts the Next app. It is the one part of this system that genuinely suits
       # serverless: the pages are stateless, and everything stateful — the operation log, the WebSocket
