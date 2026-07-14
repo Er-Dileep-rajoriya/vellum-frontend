@@ -1,0 +1,72 @@
+name: frontend
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  test:
+    name: lint · typecheck · unit · bench
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+      - run: pnpm typecheck
+
+      # The CRDT convergence fuzz test lives here: 500 generated histories × up to 5 replicas × random
+      # delivery orders × duplicates, asserting byte-identical state. If it fails, the merge algorithm is
+      # wrong and the merge algorithm does not ship. It is the single most important job in this file.
+      - run: pnpm test
+
+      # Typing latency and batch-apply scaling. A separate step because it needs the machine to itself:
+      # run beside the fuzz test it measures the OS scheduler as much as the code. It asserts scaling laws
+      # ("a 10× larger document must not cost 10× more per keystroke"), so it fails on an algorithmic
+      # regression rather than on a busy runner.
+      - run: pnpm bench
+
+      - run: pnpm build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+
+  deploy:
+    name: deploy → Vercel
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    concurrency:
+      group: deploy-frontend
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Vercel builds and hosts the Next app. It is the one part of this system that genuinely suits
+      # serverless: the pages are stateless, and everything stateful — the operation log, the WebSocket
+      # relay — lives on the backend precisely because Vercel's functions cannot hold a socket (C10).
+      - name: Deploy
+        run: |
+          npm i -g vercel@latest
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

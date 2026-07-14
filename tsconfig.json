@@ -1,0 +1,44 @@
+{
+  "compilerOptions": {
+    // ES2020, not Next's default ES2017: `serverSeq` is a Postgres bigint and the sync cursor of the
+    // whole system. It is a `bigint` in TypeScript because a JS number silently loses integer
+    // precision above 2^53, and a sync cursor that silently rounds is a sync cursor that skips
+    // operations. BigInt literals require ES2020. Every browser we support has had them for years.
+    "target": "ES2020",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+
+    /* Strictness, matched to the backend. The CRDT's correctness leans on the compiler refusing to
+       let an `undefined` become a character id. `noUncheckedIndexedAccess` in particular turns every
+       `chars[i]` into a decision rather than an assumption. */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "useUnknownInCatchVariables": true,
+
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules", "e2e"]
+}

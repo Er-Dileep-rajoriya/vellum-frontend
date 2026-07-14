@@ -1,0 +1,7 @@
+# pnpm 11 requires explicit opt-in for dependency postinstall scripts.
+# `sharp` (Next's image optimiser) and `unrs-resolver` (eslint's module resolver) ship native
+# binaries and need one. Everything else stays denied — an unreviewed postinstall is a
+# supply-chain foothold, and the default of "deny" is the correct one.
+allowBuilds:
+  sharp: true
+  unrs-resolver: true
