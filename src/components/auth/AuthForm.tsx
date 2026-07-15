@@ -1,22 +1,27 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 
 import { cn } from "@/lib/utils";
 
 /**
- * The sign-in form.
+ * The sign-in / sign-up form.
  *
  * React Hook Form + zod, with the SAME schema shape the backend validates against. Client validation
  * is a UX affordance — it saves a round trip and tells the user about a typo immediately. It is not a
  * security control, and it is not treated as one: the backend re-validates everything, because a
  * client-side check is a suggestion an attacker is free to ignore.
+ *
+ * Sign in and sign up are separate routes (/login and /signup), not a toggle. Each renders this
+ * component with a fixed `mode`, so the URL is shareable, the back button works, and a password
+ * manager sees a stable form instead of one that mutates under it.
  */
 
 const SignInSchema = z.object({
@@ -33,17 +38,23 @@ const SignUpSchema = SignInSchema.extend({
 
 type FormValues = z.infer<typeof SignUpSchema>;
 
-export function LoginForm({
+export function AuthForm({
+  mode,
   callbackUrl,
   initialError,
+  notice,
 }: {
+  readonly mode: "signin" | "signup";
   readonly callbackUrl: string;
   readonly initialError: string | null;
+  // A success message from a completed flow elsewhere (e.g. "Email verified — sign in"), shown once
+  // above the form. Distinct from `error` so it reads as good news, not a failure.
+  readonly notice?: string | undefined;
 }) {
   const router = useRouter();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [error, setError] = useState<string | null>(initialError);
   const [busy, setBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(mode === "signin" ? (SignInSchema as never) : SignUpSchema),
@@ -69,6 +80,12 @@ export function LoginForm({
           setError(body?.error ?? "Could not create your account.");
           return;
         }
+
+        // Do NOT sign in yet: the account is created but unverified, and the backend refuses a
+        // credentials login until the emailed code is confirmed. Send the user to the verify screen
+        // (which the register call already dispatched a code for) with their address prefilled.
+        router.push(`/verify-email?email=${encodeURIComponent(values.email)}`);
+        return;
       }
 
       const result = await signIn("credentials", {
@@ -78,6 +95,9 @@ export function LoginForm({
       });
 
       if (result?.error !== undefined && result.error !== null) {
+        // The backend returns the SAME error for a wrong password and an unverified account, so this
+        // message stays generic. The standing "verify your email" link below the form is the escape
+        // hatch for someone who signed up but never confirmed.
         setError("Invalid email or password.");
         return;
       }
@@ -93,8 +113,23 @@ export function LoginForm({
     }
   });
 
+  // Prefill the verify link with whatever address the user has typed, so the escape hatch for an
+  // unverified account lands them on a form that already knows who they are. `useWatch` (not
+  // `form.watch`) is the subscription form React Compiler can reason about — the plain watch()
+  // function it cannot, and warns.
+  const emailValue = useWatch({ control: form.control, name: "email" });
+  const verifyHref = emailValue
+    ? `/verify-email?email=${encodeURIComponent(emailValue)}`
+    : "/verify-email";
+
   return (
     <div className="mt-8">
+      {notice !== undefined && (
+        <p className="mb-4 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
+          {notice}
+        </p>
+      )}
+
       <button
         type="button"
         onClick={() => void signIn("google", { callbackUrl })}
@@ -130,13 +165,43 @@ export function LoginForm({
 
         <Field
           label="Password"
-          type="password"
+          type={showPassword ? "text" : "password"}
           error={form.formState.errors.password?.message}
           {...form.register("password")}
           // The correct autocomplete token per mode. Getting this wrong is why password managers
           // sometimes overwrite a saved password during signup.
           autoComplete={mode === "signin" ? "current-password" : "new-password"}
+          rightSlot={
+            <button
+              type="button"
+              // Toggle only flips a local flag — the value never leaves the field. onMouseDown prevents
+              // the button from stealing focus, so tabbing back into the input still works.
+              onClick={() => setShowPassword((v) => !v)}
+              onMouseDown={(e) => e.preventDefault()}
+              tabIndex={-1}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-pressed={showPassword}
+              className="grid place-items-center text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {showPassword ? (
+                <EyeOff className="size-4" aria-hidden />
+              ) : (
+                <Eye className="size-4" aria-hidden />
+              )}
+            </button>
+          }
         />
+
+        {mode === "signin" && (
+          <div className="text-right">
+            <Link
+              href="/forgot-password"
+              className="text-xs font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground"
+            >
+              Forgot password?
+            </Link>
+          </div>
+        )}
 
         {error !== null && (
           <p role="alert" className="text-sm text-destructive">
@@ -156,18 +221,22 @@ export function LoginForm({
 
       <p className="mt-6 text-center text-sm text-muted-foreground">
         {mode === "signin" ? "Don't have an account?" : "Already have an account?"}{" "}
-        <button
-          type="button"
-          onClick={() => {
-            setMode(mode === "signin" ? "signup" : "signin");
-            setError(null);
-            form.reset();
-          }}
+        <Link
+          href={mode === "signin" ? "/signup" : "/login"}
           className="font-medium text-foreground underline underline-offset-4"
         >
           {mode === "signin" ? "Sign up" : "Sign in"}
-        </button>
+        </Link>
       </p>
+
+      {mode === "signin" && (
+        <p className="mt-2 text-center text-xs text-muted-foreground">
+          Signed up but never confirmed your email?{" "}
+          <Link href={verifyHref} className="underline underline-offset-4 hover:text-foreground">
+            Verify it
+          </Link>
+        </p>
+      )}
     </div>
   );
 }
@@ -175,10 +244,12 @@ export function LoginForm({
 const Field = function Field({
   label,
   error,
+  rightSlot,
   ...props
 }: React.InputHTMLAttributes<HTMLInputElement> & {
   readonly label: string;
   readonly error?: string | undefined;
+  readonly rightSlot?: React.ReactNode;
 }) {
   const id = `field-${label.toLowerCase()}`;
 
@@ -187,19 +258,26 @@ const Field = function Field({
       <label htmlFor={id} className="mb-1.5 block text-sm font-medium">
         {label}
       </label>
-      <input
-        id={id}
-        // Wire the error to the input for screen readers. A red border is invisible to someone using
-        // one, and "the form just doesn't submit" is the most frustrating possible failure mode.
-        aria-invalid={error !== undefined}
-        aria-describedby={error !== undefined ? `${id}-error` : undefined}
-        className={cn(
-          "w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none transition-colors",
-          "focus:ring-2 focus:ring-foreground/20",
-          error !== undefined ? "border-destructive" : "border-border",
+      <div className="relative">
+        <input
+          id={id}
+          // Wire the error to the input for screen readers. A red border is invisible to someone using
+          // one, and "the form just doesn't submit" is the most frustrating possible failure mode.
+          aria-invalid={error !== undefined}
+          aria-describedby={error !== undefined ? `${id}-error` : undefined}
+          className={cn(
+            "w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none transition-colors",
+            "focus:ring-2 focus:ring-foreground/20",
+            // Leave room so the toggle never sits on top of the typed value.
+            rightSlot !== undefined && "pr-10",
+            error !== undefined ? "border-destructive" : "border-border",
+          )}
+          {...props}
+        />
+        {rightSlot !== undefined && (
+          <div className="absolute inset-y-0 right-0 flex items-center pr-3">{rightSlot}</div>
         )}
-        {...props}
-      />
+      </div>
       {error !== undefined && (
         <p id={`${id}-error`} className="mt-1 text-xs text-destructive">
           {error}

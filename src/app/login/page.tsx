@@ -2,17 +2,29 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
-import { LoginForm } from "@/components/auth/LoginForm";
+import { AuthForm } from "@/components/auth/AuthForm";
 
 export default async function LoginPage({
   searchParams,
 }: {
-  readonly searchParams: Promise<{ error?: string; callbackUrl?: string }>;
+  readonly searchParams: Promise<{
+    error?: string;
+    callbackUrl?: string;
+    verified?: string;
+    reset?: string;
+  }>;
 }) {
   const session = await auth();
   if (session?.user?.id !== undefined) redirect("/documents");
 
-  const { error, callbackUrl } = await searchParams;
+  const { error, callbackUrl, verified, reset } = await searchParams;
+
+  const notice =
+    verified !== undefined
+      ? "Email verified. Sign in to continue."
+      : reset !== undefined
+        ? "Password updated. Sign in with your new password."
+        : undefined;
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center px-6">
@@ -25,7 +37,12 @@ export default async function LoginPage({
         Your documents are saved on this device and synced when you&apos;re online.
       </p>
 
-      <LoginForm callbackUrl={callbackUrl ?? "/documents"} initialError={mapError(error)} />
+      <AuthForm
+        mode="signin"
+        callbackUrl={callbackUrl ?? "/documents"}
+        initialError={mapError(error)}
+        notice={notice}
+      />
     </main>
   );
 }
