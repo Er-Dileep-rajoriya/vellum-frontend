@@ -1,6 +1,7 @@
 "use client";
 
-import { History } from "lucide-react";
+import { ArrowLeft, History } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { ConnectionIndicator, Presence } from "@/components/Presence";
@@ -42,7 +43,13 @@ export function DocumentWorkspace({ documentId }: { readonly documentId: string 
           stack cleanly instead of overlapping. */}
       <header className="sticky top-14 z-30 border-b border-border bg-background/80 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-3xl items-center justify-between gap-4 px-6">
-          <DocumentTitle documentId={documentId} apiUrl={apiUrl} getToken={getToken} />
+          <Link
+            href="/documents"
+            className="-ml-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <ArrowLeft className="size-4" aria-hidden />
+            <span className="hidden sm:inline">All documents</span>
+          </Link>
 
           <div className="flex items-center gap-3">
             <ConnectionIndicator status={connection} peerCount={peers.length} />
@@ -64,22 +71,28 @@ export function DocumentWorkspace({ documentId }: { readonly documentId: string 
         </div>
       </header>
 
-      <div className="flex">
-        <main className="mx-auto max-w-3xl flex-1 px-6 py-12">
-          {!ready || store === null ? (
-            <EditorSkeleton />
-          ) : (
-            <Editor
-            store={store}
-            blocks={blocks}
-            readOnly={false}
-            documentId={documentId}
-            apiUrl={apiUrl}
-            getToken={getToken}
-            peers={peers}
-            onPresence={setPresence}
-          />
-          )}
+      <div className="flex flex-1">
+        <main className="mx-auto w-full max-w-3xl flex-1 px-6 pb-32 pt-10 sm:pt-16">
+          {/* The title is the page heading, not a toolbar field — like a modern doc. It loads its own
+              data, so it appears immediately while the document blocks are still hydrating. */}
+          <DocumentTitle documentId={documentId} apiUrl={apiUrl} getToken={getToken} />
+
+          <div className="mt-6">
+            {!ready || store === null ? (
+              <EditorSkeleton />
+            ) : (
+              <Editor
+                store={store}
+                blocks={blocks}
+                readOnly={false}
+                documentId={documentId}
+                apiUrl={apiUrl}
+                getToken={getToken}
+                peers={peers}
+                onPresence={setPresence}
+              />
+            )}
+          </div>
         </main>
 
         {historyOpen && store !== null && (

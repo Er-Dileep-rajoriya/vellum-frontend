@@ -104,7 +104,7 @@ export function DocumentTitle({
   if (!canEdit) {
     return (
       <h1
-        className={`truncate text-sm font-medium ${loaded ? "" : "animate-pulse text-muted-foreground"}`}
+        className={`text-3xl font-bold tracking-tight sm:text-4xl ${loaded ? "" : "animate-pulse text-muted-foreground"}`}
       >
         {title}
       </h1>
@@ -133,7 +133,9 @@ export function DocumentTitle({
       maxLength={200}
       spellCheck={false}
       placeholder="Untitled"
-      className="min-w-0 max-w-[60vw] truncate rounded-md bg-transparent px-1.5 py-0.5 text-sm font-medium outline-none transition-colors hover:bg-accent focus:bg-accent focus:ring-2 focus:ring-foreground/20"
+      // The page heading, edited in place: no visible box until you interact, then a soft focus ring.
+      // A doc title should read as a title, not a form field.
+      className="-ml-2 w-full rounded-lg bg-transparent px-2 py-1 text-3xl font-bold tracking-tight outline-none transition-colors placeholder:text-muted-foreground/50 hover:bg-accent/50 focus:bg-accent/40 focus:ring-2 focus:ring-foreground/15 sm:text-4xl"
     />
   );
 }
