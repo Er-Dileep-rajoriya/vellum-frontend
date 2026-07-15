@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Plus } from "lucide-react";
+import { AlertCircle, FileText, Plus } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -115,8 +115,12 @@ export function DocumentList() {
       </div>
 
       {error !== null && (
-        <p role="alert" className="mb-4 rounded-lg bg-muted p-3 text-sm text-muted-foreground">
-          {error}
+        <p
+          role="alert"
+          className="mb-4 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+        >
+          <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>{error}</span>
         </p>
       )}
 
@@ -124,39 +128,43 @@ export function DocumentList() {
 
       {documents !== null && documents.length === 0 && error === null && (
         <div className="rounded-xl border border-dashed border-border py-16 text-center">
-          <p className="text-sm text-muted-foreground">
-            No documents yet. Create one and start writing.
-          </p>
+          <FileText className="mx-auto mb-3 size-6 text-muted-foreground" aria-hidden />
+          <p className="text-sm font-medium">No documents yet</p>
+          <p className="mt-1 text-sm text-muted-foreground">Create one and start writing.</p>
         </div>
       )}
 
-      <ul className="divide-y divide-border rounded-xl border border-border">
-        {documents?.map((document) => (
-          <li key={document.id}>
-            <a
-              href={`/documents/${document.id}`}
-              className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/50"
-            >
-              <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      {/* Only render the list container when there is something to list. An always-present <ul>
+          shows as a stray empty bordered box on the loading-error and empty states. */}
+      {documents !== null && documents.length > 0 && (
+        <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+          {documents.map((document) => (
+            <li key={document.id}>
+              <a
+                href={`/documents/${document.id}`}
+                className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/50"
+              >
+                <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
 
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">{document.title}</span>
-                <span className="block text-xs text-muted-foreground">
-                  {relativeTime(new Date(document.updatedAt).getTime())}
-                  {document.collaboratorCount > 1 &&
-                    ` · ${document.collaboratorCount} collaborators`}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{document.title}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {relativeTime(new Date(document.updatedAt).getTime())}
+                    {document.collaboratorCount > 1 &&
+                      ` · ${document.collaboratorCount} collaborators`}
+                  </span>
                 </span>
-              </span>
 
-              {document.role !== "OWNER" && (
-                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  {document.role === "EDITOR" ? "Editor" : "Viewer"}
-                </span>
-              )}
-            </a>
-          </li>
-        ))}
-      </ul>
+                {document.role !== "OWNER" && (
+                  <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    {document.role === "EDITOR" ? "Editor" : "Viewer"}
+                  </span>
+                )}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
