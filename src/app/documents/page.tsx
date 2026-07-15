@@ -1,4 +1,3 @@
-import { auth } from "@/auth";
 import { DocumentList } from "@/components/documents/DocumentList";
 
 /**
@@ -13,11 +12,10 @@ import { DocumentList } from "@/components/documents/DocumentList";
  * require the network. But the shell, the header, and the skeleton do not, and they should be on
  * screen instantly.
  */
-export default async function DocumentsPage() {
-  const session = await auth();
-
+export default function DocumentsPage() {
   return (
-    <div className="mx-auto flex-1 w-full max-w-3xl px-6 py-12">
+    <div className="mx-auto w-full max-w-3xl flex-1 px-6 py-12">
+      <h1 className="mb-8 text-2xl font-semibold tracking-tight">Documents</h1>
       <DocumentList />
     </div>
   );
