@@ -34,10 +34,12 @@ export function DocumentWorkspace({ documentId }: { readonly documentId: string 
   );
 
   return (
-    <div className="min-h-dvh">
+    <div className="flex flex-1 flex-col">
       <OfflineBanner state={sync} />
 
-      <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur">
+      {/* Sticks BELOW the global app header (h-14 = top-14), not at the very top, so the two bars
+          stack cleanly instead of overlapping. */}
+      <header className="sticky top-14 z-30 border-b border-border bg-background/80 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-3xl items-center justify-between gap-4 px-6">
           <h1 className="truncate text-sm font-medium">Untitled</h1>
 

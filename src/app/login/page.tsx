@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
@@ -27,11 +26,7 @@ export default async function LoginPage({
         : undefined;
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center px-6">
-      <Link href="/" className="mb-8 text-sm font-medium text-muted-foreground">
-        Vellum
-      </Link>
-
+    <main className="mx-auto flex flex-1 w-full max-w-sm flex-col justify-center px-6">
       <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         Your documents are saved on this device and synced when you&apos;re online.

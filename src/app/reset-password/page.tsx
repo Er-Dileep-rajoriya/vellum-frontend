@@ -10,11 +10,7 @@ export default async function ResetPasswordPage({
   const { email, sent } = await searchParams;
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center px-6">
-      <Link href="/" className="mb-8 text-sm font-medium text-muted-foreground">
-        Vellum
-      </Link>
-
+    <main className="mx-auto flex flex-1 w-full max-w-sm flex-col justify-center px-6">
       <h1 className="text-2xl font-semibold tracking-tight">Reset your password</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         Enter the code from your email and choose a new password.

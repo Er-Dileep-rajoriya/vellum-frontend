@@ -10,7 +10,7 @@ import { ArrowRight, CloudOff, GitBranch, Users } from "lucide-react";
  */
 export default function HomePage() {
   return (
-    <main className="mx-auto flex min-h-dvh max-w-4xl flex-col justify-center px-6 py-20">
+    <main className="mx-auto flex flex-1 max-w-4xl flex-col justify-center px-6 py-20">
       <p className="mb-4 text-sm font-medium text-muted-foreground">Vellum</p>
 
       <h1 className="max-w-2xl text-balance text-5xl font-semibold leading-[1.1] tracking-tight sm:text-6xl">

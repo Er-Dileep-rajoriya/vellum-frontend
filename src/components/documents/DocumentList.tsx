@@ -1,13 +1,12 @@
 "use client";
 
 import { AlertCircle, FileText, Plus } from "lucide-react";
-import { signOut } from "next-auth/react";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiBaseUrl } from "@/lib/clientEnv";
 import { relativeTime } from "@/lib/utils";
-import { clearAccessToken, getAccessToken } from "@/services/tokenProvider";
+import { getAccessToken } from "@/services/tokenProvider";
 
 interface DocumentSummary {
   id: string;
@@ -99,20 +98,7 @@ export function DocumentList() {
           <Plus className="size-4" aria-hidden />
           New document
         </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            // Clear the in-memory access token BEFORE ending the session. A token that outlives the
-            // session it came from is a token that still works — for up to fifteen minutes, on a
-            // machine the user just walked away from.
-            clearAccessToken();
-            void signOut({ callbackUrl: "/login" });
-          }}
-          className="ml-auto text-sm text-muted-foreground underline underline-offset-4"
-        >
-          Sign out
-        </button>
+        {/* Sign out lives in the global app header now — reachable from every screen, not just this one. */}
       </div>
 
       {error !== null && (
