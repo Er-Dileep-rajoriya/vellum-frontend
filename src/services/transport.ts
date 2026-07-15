@@ -144,6 +144,41 @@ export class HttpTransport implements Transport {
 }
 
 /**
+ * A transport that goes nowhere.
+ *
+ * Used for the public demo document (`/documents/demo`), which has no server-side record: it is a
+ * try-the-editor scratchpad that lives entirely in the browser's IndexedDB. Pointing the real
+ * HttpTransport at it would push operations the backend has never heard of, every one of which comes
+ * back rejected and lands in the dead-letter queue — the "N changes couldn't be saved" a user should
+ * never see on a doc that is working exactly as intended.
+ *
+ * So this transport *acknowledges* everything immediately, with a fabricated monotonic sequence. The
+ * sync engine then sees a clean flush ("Saved"), the outbox drains, and nothing ever leaves the
+ * device. Pull returns nothing, because there is no server to pull from.
+ */
+export class LocalOnlyTransport implements Transport {
+  #seq = 0;
+
+  push(
+    _documentId: string,
+    clientId: string,
+    operations: readonly Operation[],
+    _idempotencyKey: string,
+  ): Promise<PushResponse> {
+    const acknowledged = operations.map((op) => ({
+      operationId: op.operationId,
+      serverSeq: String(++this.#seq),
+      userId: clientId,
+    }));
+    return Promise.resolve({ acknowledged, duplicateCount: 0, documentSeq: String(this.#seq) });
+  }
+
+  pull(): Promise<PullResponse> {
+    return Promise.resolve({ operations: [], hasMore: false, documentSeq: String(this.#seq) });
+  }
+}
+
+/**
  * `documentVersion` is a bigint locally and a string on the wire.
  *
  * JSON has no integers above 2^53. `serverSeq` is the sync cursor of the entire system, and a cursor

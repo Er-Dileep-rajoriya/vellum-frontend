@@ -7,7 +7,7 @@ import type { RenderedBlock } from "@/crdt/types";
 import { apiBaseUrl } from "@/lib/clientEnv";
 import { db, getClientId } from "@/database/db";
 import { DocumentStore } from "@/services/documentStore";
-import { HttpTransport, type TokenProvider } from "@/services/transport";
+import { HttpTransport, LocalOnlyTransport, type TokenProvider } from "@/services/transport";
 import { CrossTabChannel } from "@/sync-engine/crossTab";
 import { SyncEngine, type SyncState } from "@/sync-engine/syncEngine";
 import { VersionApi } from "@/services/versionApi";
@@ -61,6 +61,12 @@ export function useDocument(documentId: string, getToken: TokenProvider): UseDoc
     let disposed = false;
     const clientId = getClientId();
 
+    // The public demo has no server-side document. It is a local-only scratchpad: it persists to
+    // IndexedDB like any other doc, but it never pushes to the backend, never opens a collaboration
+    // socket, and never writes server-side version snapshots — all three would fail against a document
+    // that does not exist and surface as "couldn't be saved".
+    const localOnly = documentId === "demo";
+
     void (async () => {
       // The persisted Lamport clock. Restoring it is not optional — see DocumentStore.persistClock.
       const checkpoint = await db.checkpoints.get(documentId);
@@ -69,7 +75,7 @@ export function useDocument(documentId: string, getToken: TokenProvider): UseDoc
       const engine = new SyncEngine({
         documentId,
         clientId,
-        transport: new HttpTransport(apiUrl, getToken),
+        transport: localOnly ? new LocalOnlyTransport() : new HttpTransport(apiUrl, getToken),
         onRemoteOperations: (operations) => {
           nextStore.applyRemote(operations);
         },
@@ -119,7 +125,8 @@ export function useDocument(documentId: string, getToken: TokenProvider): UseDoc
         store: nextStore,
         api: new VersionApi(apiUrl, getToken),
         documentId,
-        enabled: true,
+        // No server-side versions for the local-only demo — there is nothing to POST them to.
+        enabled: !localOnly,
       });
       nextStore.onLocalOperations((count) => snapshots.onOperations(count));
       snapshots.start();
@@ -134,22 +141,28 @@ export function useDocument(documentId: string, getToken: TokenProvider): UseDoc
        * only thing lost is latency. Making the socket a delivery path would make it a delivery
        * *dependency*, and the product would break on hotel WiFi.
        */
-      const collaboration = new CollaborationClient({
-        url: apiUrl.replace(/^http/, "ws") + "/ws",
-        documentId,
-        clientId,
-        getToken,
-        onOperations: (operations) => {
-          nextStore.applyRemote(operations);
-        },
-        onPeers: (nextPeers) => {
-          // Do not render yourself in the presence list. Seeing your own avatar in "who is here" is
-          // the kind of small wrongness that makes a product feel unfinished.
-          setPeers(nextPeers.filter((peer) => peer.clientId !== clientId));
-        },
-        onStatus: setConnection,
-      });
+      // The local-only demo has no collaborators and no socket to connect to. Skip the client
+      // entirely and report a settled "connected" state, so the header shows a calm indicator rather
+      // than a spinner reconnecting forever to a document the server does not have.
+      const collaboration = localOnly
+        ? null
+        : new CollaborationClient({
+            url: apiUrl.replace(/^http/, "ws") + "/ws",
+            documentId,
+            clientId,
+            getToken,
+            onOperations: (operations) => {
+              nextStore.applyRemote(operations);
+            },
+            onPeers: (nextPeers) => {
+              // Do not render yourself in the presence list. Seeing your own avatar in "who is here"
+              // is the kind of small wrongness that makes a product feel unfinished.
+              setPeers(nextPeers.filter((peer) => peer.clientId !== clientId));
+            },
+            onStatus: setConnection,
+          });
       collabRef.current = collaboration;
+      if (localOnly) setConnection("connected");
 
       /**
        * Hand the client any caret the user has already placed.
@@ -169,11 +182,11 @@ export function useDocument(documentId: string, getToken: TokenProvider): UseDoc
        * cover different windows: this one covers "the client does not exist yet", and the client's own
        * memory covers "the socket is not open yet" and every reconnect thereafter.
        */
-      if (presenceRef.current !== null) {
+      if (collaboration !== null && presenceRef.current !== null) {
         collaboration.setPresence(presenceRef.current.blockId, presenceRef.current.anchor);
       }
 
-      void collaboration.connect();
+      void collaboration?.connect();
 
       // Local first, in the literal order of operations: the document is on screen from IndexedDB
       // BEFORE the network is consulted about whether it even exists.
@@ -182,7 +195,7 @@ export function useDocument(documentId: string, getToken: TokenProvider): UseDoc
 
       if (disposed) {
         engine.dispose();
-        collaboration.dispose();
+        collaboration?.dispose();
         channel.close();
         snapshots.dispose();
         return;

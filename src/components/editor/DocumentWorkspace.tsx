@@ -26,6 +26,11 @@ export function DocumentWorkspace({ documentId }: { readonly documentId: string 
   const [historyOpen, setHistoryOpen] = useState(false);
   const apiUrl = useMemo(() => apiBaseUrl(), []);
 
+  // The public demo is a device-local scratchpad with no server document (see useDocument): no
+  // collaborators, no shared history. Hiding the presence/connection chrome keeps the header honest
+  // rather than showing a "who's here" affordance for a doc nobody else can open.
+  const isDemo = documentId === "demo";
+
   // The real provider: caches in memory, refreshes 60s before expiry, coalesces concurrent
   // refreshes into one round trip, and never writes the token to any browser storage.
   const getToken = getAccessToken;
@@ -52,9 +57,17 @@ export function DocumentWorkspace({ documentId }: { readonly documentId: string 
           </Link>
 
           <div className="flex items-center gap-3">
-            <ConnectionIndicator status={connection} peerCount={peers.length} />
-            <Presence peers={peers} />
-            <SyncStatus state={sync} onRetry={() => store?.syncNow()} />
+            {isDemo ? (
+              <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+                Demo · saved on this device
+              </span>
+            ) : (
+              <>
+                <ConnectionIndicator status={connection} peerCount={peers.length} />
+                <Presence peers={peers} />
+                <SyncStatus state={sync} onRetry={() => store?.syncNow()} />
+              </>
+            )}
 
             <button
               type="button"
