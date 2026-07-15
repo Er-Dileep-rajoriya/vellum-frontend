@@ -11,6 +11,7 @@ import { useDocument } from "@/hooks/useDocument";
 import { apiBaseUrl } from "@/lib/clientEnv";
 import { getAccessToken } from "@/services/tokenProvider";
 
+import { DocumentTitle } from "./DocumentTitle";
 import { Editor } from "./Editor";
 
 /**
@@ -41,7 +42,7 @@ export function DocumentWorkspace({ documentId }: { readonly documentId: string 
           stack cleanly instead of overlapping. */}
       <header className="sticky top-14 z-30 border-b border-border bg-background/80 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-3xl items-center justify-between gap-4 px-6">
-          <h1 className="truncate text-sm font-medium">Untitled</h1>
+          <DocumentTitle documentId={documentId} apiUrl={apiUrl} getToken={getToken} />
 
           <div className="flex items-center gap-3">
             <ConnectionIndicator status={connection} peerCount={peers.length} />

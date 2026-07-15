@@ -18,15 +18,6 @@ export default async function DocumentsPage() {
 
   return (
     <div className="mx-auto flex-1 w-full max-w-3xl px-6 py-12">
-      <header className="mb-8 flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Documents</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Signed in as {session?.user?.email ?? "—"}
-          </p>
-        </div>
-      </header>
-
       <DocumentList />
     </div>
   );
