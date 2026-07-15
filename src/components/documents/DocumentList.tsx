@@ -5,6 +5,7 @@ import { signOut } from "next-auth/react";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { apiBaseUrl } from "@/lib/clientEnv";
 import { relativeTime } from "@/lib/utils";
 import { clearAccessToken, getAccessToken } from "@/services/tokenProvider";
 
@@ -16,7 +17,7 @@ interface DocumentSummary {
   updatedAt: string;
 }
 
-const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:4000";
+const API_URL = apiBaseUrl();
 
 export function DocumentList() {
   const router = useRouter();

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { CollaborationClient, type ConnectionStatus, type Peer } from "@/collaboration/wsClient";
 import type { RenderedBlock } from "@/crdt/types";
+import { apiBaseUrl } from "@/lib/clientEnv";
 import { db, getClientId } from "@/database/db";
 import { DocumentStore } from "@/services/documentStore";
 import { HttpTransport, type TokenProvider } from "@/services/transport";
@@ -54,10 +55,7 @@ export function useDocument(documentId: string, getToken: TokenProvider): UseDoc
   const channelRef = useRef<CrossTabChannel | null>(null);
   const snapshotRef = useRef<AutoSnapshot | null>(null);
 
-  const apiUrl = useMemo(
-    () => process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:4000",
-    [],
-  );
+  const apiUrl = useMemo(() => apiBaseUrl(), []);
 
   useEffect(() => {
     let disposed = false;

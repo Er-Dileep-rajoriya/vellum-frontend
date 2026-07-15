@@ -8,6 +8,7 @@ import { OfflineBanner, SyncStatus } from "@/components/SyncStatus";
 import { ThemeToggle } from "@/components/ThemeProvider";
 import { VersionHistory } from "@/components/versions/VersionHistory";
 import { useDocument } from "@/hooks/useDocument";
+import { apiBaseUrl } from "@/lib/clientEnv";
 import { getAccessToken } from "@/services/tokenProvider";
 
 import { Editor } from "./Editor";
@@ -21,7 +22,7 @@ import { Editor } from "./Editor";
  */
 export function DocumentWorkspace({ documentId }: { readonly documentId: string }) {
   const [historyOpen, setHistoryOpen] = useState(false);
-  const apiUrl = useMemo(() => process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:4000", []);
+  const apiUrl = useMemo(() => apiBaseUrl(), []);
 
   // The real provider: caches in memory, refreshes 60s before expiry, coalesces concurrent
   // refreshes into one round trip, and never writes the token to any browser storage.
