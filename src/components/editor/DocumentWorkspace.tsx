@@ -65,7 +65,7 @@ export function DocumentWorkspace({ documentId }: { readonly documentId: string 
               <>
                 <ConnectionIndicator status={connection} peerCount={peers.length} />
                 <Presence peers={peers} />
-                <SyncStatus state={sync} onRetry={() => store?.syncNow()} />
+                <SyncStatus state={sync} onRetry={() => store?.retryFailed()} />
               </>
             )}
 

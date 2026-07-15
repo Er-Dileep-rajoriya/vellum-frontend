@@ -180,6 +180,15 @@ export class DocumentStore {
     void this.#engine?.syncNow();
   }
 
+  /**
+   * The user pressed "Retry" on the "couldn't be saved" badge: move EVERY dead-lettered operation
+   * (recoverable or not) back into the outbox and sync. This is the manual escape hatch that makes a
+   * dead-letter non-terminal — the writing is never truly stuck as long as this exists.
+   */
+  retryFailed(): void {
+    void this.#engine?.requeueDeadLetters(false);
+  }
+
   #emit(): void {
     for (const listener of this.#listeners) listener();
   }

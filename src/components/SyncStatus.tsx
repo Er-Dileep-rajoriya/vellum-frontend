@@ -40,11 +40,18 @@ export function SyncStatus({ state, onRetry, onShowFailures }: SyncStatusProps) 
     return (
       <button
         type="button"
-        onClick={onShowFailures}
+        // Retry is the primary action now that dead-letters are recoverable: clicking moves the failed
+        // operations back into the outbox and tries again. Falls back to onShowFailures if no retry
+        // handler is wired.
+        onClick={onRetry ?? onShowFailures}
+        title="Retry saving these changes"
         className="flex items-center gap-1.5 rounded-full bg-destructive/10 px-3 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20"
       >
         <AlertTriangle className="size-3.5" aria-hidden />
-        {state.deadLetterCount} change{state.deadLetterCount === 1 ? "" : "s"} couldn&apos;t be saved
+        <span>
+          {state.deadLetterCount} change{state.deadLetterCount === 1 ? "" : "s"} couldn&apos;t save
+        </span>
+        <RefreshCw className="size-3.5" aria-hidden />
       </button>
     );
   }

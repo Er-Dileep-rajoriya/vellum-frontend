@@ -52,10 +52,14 @@ export type TokenProvider = () => Promise<string>;
 export class HttpTransport implements Transport {
   readonly #baseUrl: string;
   readonly #getToken: TokenProvider;
+  readonly #invalidateToken: (() => void) | undefined;
 
-  constructor(baseUrl: string, getToken: TokenProvider) {
+  constructor(baseUrl: string, getToken: TokenProvider, invalidateToken?: () => void) {
     this.#baseUrl = baseUrl.replace(/\/$/, "");
     this.#getToken = getToken;
+    // Called on a 401 to drop the cached token before the one automatic retry, so a stale bearer
+    // token is refreshed rather than dead-lettering the user's writing. See tokenProvider.ts.
+    this.#invalidateToken = invalidateToken;
   }
 
   async push(
@@ -89,57 +93,71 @@ export class HttpTransport implements Transport {
     path: string,
     options: { headers?: Record<string, string>; body?: unknown } = {},
   ): Promise<T> {
-    const token = await this.#getToken();
+    // At most two attempts: the first with whatever token the provider has, and — ONLY on a 401 — a
+    // second with a freshly minted one. A 401 almost always means the cached bearer token went stale
+    // (a long offline gap, clock skew), not that the operation is bad. Refreshing and retrying here
+    // means the sync engine never even sees that 401, so it cannot mistake it for a permanent
+    // rejection and dead-letter the batch.
+    for (let attempt = 0; ; attempt += 1) {
+      const token = await this.#getToken();
 
-    const response = await fetch(`${this.#baseUrl}${path}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
-      ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
-    });
+      const response = await fetch(`${this.#baseUrl}${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          ...options.headers,
+        },
+        ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+      });
 
-    if (!response.ok) {
-      // The server's error envelope carries `retryable`, which is the bit the whole retry/DLQ
-      // decision hangs on. Parse it; if the body is not our envelope (a proxy's HTML 502 page, a
-      // captive portal's login form), fall back to the status code — 5xx and 429 are retryable,
-      // everything else is not.
-      const fallbackRetryable = response.status >= 500 || response.status === 429;
+      if (response.ok) return (await response.json()) as T;
 
-      let code = `HTTP_${response.status}`;
-      let message = response.statusText;
-      let retryable = fallbackRetryable;
-      let details: unknown;
-
-      try {
-        const body = (await response.json()) as {
-          error?: { code?: string; message?: string; retryable?: boolean; details?: unknown };
-        };
-        if (body.error !== undefined) {
-          code = body.error.code ?? code;
-          message = body.error.message ?? message;
-          retryable = body.error.retryable ?? fallbackRetryable;
-          details = body.error.details;
-        }
-      } catch {
-        // Not JSON. Keep the status-derived defaults.
+      if (response.status === 401 && attempt === 0 && this.#invalidateToken !== undefined) {
+        this.#invalidateToken();
+        continue; // retry once with a freshly minted token
       }
 
-      const retryAfter = response.headers.get("Retry-After");
+      throw await this.#errorFrom(response);
+    }
+  }
 
-      throw new SyncHttpError(
-        response.status,
-        code,
-        message,
-        retryable,
-        retryAfter !== null ? Number(retryAfter) : undefined,
-        details,
-      );
+  /** Build (not throw) a SyncHttpError from a non-ok response, so the caller decides control flow. */
+  async #errorFrom(response: Response): Promise<SyncHttpError> {
+    // The server's error envelope carries `retryable`, which is the bit the whole retry/DLQ decision
+    // hangs on. Parse it; if the body is not our envelope (a proxy's HTML 502 page, a captive portal's
+    // login form), fall back to the status code — 5xx and 429 are retryable, everything else is not.
+    const fallbackRetryable = response.status >= 500 || response.status === 429;
+
+    let code = `HTTP_${response.status}`;
+    let message = response.statusText;
+    let retryable = fallbackRetryable;
+    let details: unknown;
+
+    try {
+      const body = (await response.json()) as {
+        error?: { code?: string; message?: string; retryable?: boolean; details?: unknown };
+      };
+      if (body.error !== undefined) {
+        code = body.error.code ?? code;
+        message = body.error.message ?? message;
+        retryable = body.error.retryable ?? fallbackRetryable;
+        details = body.error.details;
+      }
+    } catch {
+      // Not JSON. Keep the status-derived defaults.
     }
 
-    return (await response.json()) as T;
+    const retryAfter = response.headers.get("Retry-After");
+
+    return new SyncHttpError(
+      response.status,
+      code,
+      message,
+      retryable,
+      retryAfter !== null ? Number(retryAfter) : undefined,
+      details,
+    );
   }
 }
 

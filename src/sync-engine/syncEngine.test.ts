@@ -479,6 +479,87 @@ describe("sync engine", () => {
 
     second.dispose();
   });
+
+  it("treats a NOT_FOUND push as transient (backoff), not an instant dead-letter", async () => {
+    const clock = new VirtualClock();
+    const scenario = newScenario();
+    // The document row was briefly not visible to this replica on reconnect. It resolves on the next
+    // attempt — so the writing must NOT be dead-lettered on the first try.
+    scenario.failNextPushes = 1;
+    scenario.failWith = new SyncHttpError(404, "NOT_FOUND", "document not found", false);
+
+    const engine = new SyncEngine({
+      documentId: DOCUMENT_ID,
+      clientId: "client-a",
+      transport: makeTransport(scenario),
+      onRemoteOperations: () => {},
+      onResyncRequired: async () => {},
+      now: clock.now,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+      random: () => 1,
+    });
+
+    for (const op of makeOps(3)) await engine.enqueue(op);
+
+    await clock.advance(500);
+    await engine.settled();
+
+    // First attempt failed with a server "non-retryable" NOT_FOUND — but it is NOT permanent, so the
+    // engine backs off instead of discarding three operations. Before this fix it dead-lettered here.
+    expect(engine.state.status).toBe("backoff");
+    expect(engine.state.deadLetterCount).toBe(0);
+
+    // The retry succeeds (only one failure was scheduled) and the writing lands.
+    await clock.advance(DEFAULT_BACKOFF.maxMs);
+    await engine.settled();
+    expect(engine.state.status).toBe("idle");
+    expect(engine.state.deadLetterCount).toBe(0);
+    expect(scenario.committed).toHaveLength(3);
+
+    engine.dispose();
+  });
+
+  it("requeues dead-lettered operations and syncs them once the condition clears", async () => {
+    const clock = new VirtualClock();
+    const scenario = newScenario();
+    // Force a permanent failure so the ops dead-letter immediately (one attempt).
+    scenario.failNextPushes = 1;
+    scenario.failWith = new SyncHttpError(422, "VALIDATION_FAILED", "malformed operation", false);
+
+    const engine = new SyncEngine({
+      documentId: DOCUMENT_ID,
+      clientId: "client-a",
+      transport: makeTransport(scenario),
+      onRemoteOperations: () => {},
+      onResyncRequired: async () => {},
+      now: clock.now,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+
+    for (const op of makeOps(2)) await engine.enqueue(op);
+    await clock.advance(500);
+    await engine.settled();
+
+    // Stranded — the old behaviour ended here, permanently.
+    expect(engine.state.status).toBe("error");
+    expect(engine.state.deadLetterCount).toBe(2);
+    expect(await db.deadLetters.count()).toBe(2);
+
+    // The condition clears (a fix ships, the doc becomes visible, the token refreshes). The user hits
+    // "Retry": dead-letters move back into the outbox and sync. Nothing is stranded forever.
+    const recovered = await engine.requeueDeadLetters(false);
+    await engine.settled();
+
+    expect(recovered).toBe(2);
+    expect(engine.state.deadLetterCount).toBe(0);
+    expect(engine.state.status).toBe("idle");
+    expect(scenario.committed).toHaveLength(2);
+    expect(await db.deadLetters.count()).toBe(0);
+
+    engine.dispose();
+  });
 });
 
 describe("backoff", () => {

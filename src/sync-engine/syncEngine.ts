@@ -6,7 +6,26 @@ import { deserializeOperation, type Transport } from "@/services/transport";
 
 import { withSyncLock } from "./crossTab";
 
-import { backoffDelay, DEFAULT_BACKOFF, isRetryable, SyncHttpError, type BackoffConfig } from "./backoff";
+import { backoffDelay, DEFAULT_BACKOFF, SyncHttpError, type BackoffConfig } from "./backoff";
+
+/**
+ * Codes that are genuinely permanent: retrying them is pure waste, so they dead-letter on sight.
+ *
+ * Everything NOT in this set — including a server "non-retryable" NOT_FOUND or UNAUTHENTICATED — gets
+ * the full bounded backoff before it is ever dead-lettered. This distinction is the fix for a real
+ * incident: a push to a document the replica could not yet see (NOT_FOUND) or with a stale bearer
+ * token (UNAUTHENTICATED) would dead-letter the user's ENTIRE offline backlog on the first try, even
+ * though both conditions clear themselves seconds later. "This exact HTTP request cannot be retried"
+ * is not the same claim as "these operations are permanently invalid", and only the second justifies
+ * discarding a user's writing from the sync path.
+ */
+const PERMANENT_CODES = new Set([
+  "VALIDATION_FAILED",
+  "PAYLOAD_TOO_LARGE",
+  "FORBIDDEN",
+  "IDEMPOTENCY_MISMATCH",
+  "BAD_REQUEST",
+]);
 
 /**
  * The sync engine.
@@ -409,15 +428,21 @@ export class SyncEngine {
       return;
     }
 
-    if (!isRetryable(error)) {
-      // Permanent. The operations in this batch will never be accepted. Move them to the dead-letter
-      // queue where the user can SEE them, export them, and where support can replay them once the
-      // bug that produced them is fixed. Silence is not an option.
+    if (error instanceof SyncHttpError && PERMANENT_CODES.has(error.code)) {
+      // Genuinely permanent (malformed op, oversized batch, a VIEWER writing, idempotency mismatch).
+      // These will never be accepted, so retrying is waste. Move them to the dead-letter queue where
+      // the user can SEE them, retry them, export them. Silence is not an option — but note the
+      // dead-letter is now RECOVERABLE (requeueDeadLetters), so even this is not the end of the road.
       await this.#deadLetter(error);
       this.#setStatus("error");
       return;
     }
 
+    // Everything else — network errors, 5xx, 429, AND a non-retryable NOT_FOUND / UNAUTHENTICATED —
+    // is treated as transient: back off and retry up to maxAttempts before dead-lettering. A stale
+    // token is refreshed by the transport (retried once there); a not-yet-visible document usually
+    // resolves within a couple of attempts. Only after the full backoff budget is spent do these
+    // dead-letter, and even then they are recoverable.
     if (!this.#isOnline()) {
       // Offline is not a failure; it is the product working as designed. No backoff, no attempt
       // counter, no error state — the outbox simply waits, and the `online` listener kicks it.
@@ -487,6 +512,54 @@ export class SyncEngine {
     this.#deadLetterCount += outbox.length;
     this.#pendingCount = Math.max(0, this.#pendingCount - outbox.length);
     this.#attempt = 0;
+  }
+
+  /**
+   * Move dead-lettered operations back into the outbox and try again.
+   *
+   * This is the recovery path that was missing entirely: before it, an operation that dead-lettered
+   * (say, because a push briefly hit a NOT_FOUND) was stranded forever — deleted from the outbox,
+   * written to `deadLetters`, and never read back — so the badge sat on "N changes couldn't be saved"
+   * permanently, even after the underlying condition cleared and every new edit synced fine.
+   *
+   * Re-enqueueing is safe because operations are idempotent: any that DID reach the server before the
+   * failure are deduped by their operation id on the retry. `onlyRecoverable` is used by the automatic
+   * on-reconnect path, so a genuinely permanent op (a validation failure) does not bounce between the
+   * queue and the outbox on every reconnect; the manual "Retry" button passes it as false to attempt
+   * everything.
+   */
+  async requeueDeadLetters(onlyRecoverable = false): Promise<number> {
+    const all = await db.deadLetters
+      .where("documentId")
+      .equals(this.#options.documentId)
+      .toArray();
+    const rows = onlyRecoverable ? all.filter((row) => !PERMANENT_CODES.has(row.code)) : all;
+    if (rows.length === 0) return 0;
+
+    let localSeq = await this.#nextLocalSeq();
+
+    await db.transaction("rw", db.operations, db.deadLetters, async () => {
+      for (const row of rows) {
+        await db.operations.put({
+          operationId: row.operationId,
+          documentId: row.documentId,
+          localSeq: localSeq++,
+          operation: row.operation,
+          serverSeq: null, // back in the outbox
+          createdAt: this.#options.now(),
+        });
+        await db.deadLetters.delete(row.operationId);
+      }
+    });
+
+    this.#pendingCount += rows.length;
+    this.#deadLetterCount = Math.max(0, this.#deadLetterCount - rows.length);
+    // Fresh backoff budget — this is a deliberate new attempt, not a continuation of the run that gave up.
+    this.#attempt = 0;
+    this.#options.onStateChange?.(this.state);
+
+    await this.syncNow();
+    return rows.length;
   }
 
   /**

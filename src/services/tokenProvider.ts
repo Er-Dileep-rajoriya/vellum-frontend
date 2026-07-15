@@ -76,3 +76,16 @@ export function clearAccessToken(): void {
   cached = null;
   inflight = null;
 }
+
+/**
+ * Drop the cached token so the next `getAccessToken()` re-mints from the session cookie.
+ *
+ * Called when the backend rejects a token with 401: the cache still thinks it is valid (within the
+ * refresh margin), but the server disagrees — because of clock skew across a long offline gap, or a
+ * token that was valid when cached and is not now. Without this, a retry resends the identical stale
+ * token and 401s again forever. Distinct from `clearAccessToken` (sign-out): a refresh already in
+ * flight is still worth awaiting, so `inflight` is left alone.
+ */
+export function invalidateAccessToken(): void {
+  cached = null;
+}

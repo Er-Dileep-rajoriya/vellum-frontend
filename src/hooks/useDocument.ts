@@ -8,6 +8,7 @@ import { apiBaseUrl } from "@/lib/clientEnv";
 import { db, getClientId } from "@/database/db";
 import { DocumentStore } from "@/services/documentStore";
 import { HttpTransport, LocalOnlyTransport, type TokenProvider } from "@/services/transport";
+import { invalidateAccessToken } from "@/services/tokenProvider";
 import { CrossTabChannel } from "@/sync-engine/crossTab";
 import { SyncEngine, type SyncState } from "@/sync-engine/syncEngine";
 import { VersionApi } from "@/services/versionApi";
@@ -75,7 +76,9 @@ export function useDocument(documentId: string, getToken: TokenProvider): UseDoc
       const engine = new SyncEngine({
         documentId,
         clientId,
-        transport: localOnly ? new LocalOnlyTransport() : new HttpTransport(apiUrl, getToken),
+        transport: localOnly
+          ? new LocalOnlyTransport()
+          : new HttpTransport(apiUrl, getToken, invalidateAccessToken),
         onRemoteOperations: (operations) => {
           nextStore.applyRemote(operations);
         },
@@ -246,7 +249,14 @@ export function useDocument(documentId: string, getToken: TokenProvider): UseDoc
    */
   useEffect(() => {
     const flush = (): void => {
-      void engineRef.current?.syncNow();
+      const engine = engineRef.current;
+      if (engine === null) return;
+      // On reconnect, first give any RECOVERABLE dead-letters (a transient NOT_FOUND, a stale-token
+      // 401, a 5xx) another chance — the condition that stranded them has very likely cleared — then
+      // flush the outbox. requeueDeadLetters syncs internally; syncNow covers the no-dead-letter case.
+      // Only recoverable codes are auto-requeued, so a genuinely permanent failure does not loop.
+      void engine.requeueDeadLetters(true);
+      void engine.syncNow();
     };
     const onVisible = (): void => {
       if (document.visibilityState === "visible") flush();
