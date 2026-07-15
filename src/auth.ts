@@ -4,22 +4,6 @@ import Google from "next-auth/providers/google";
 import { z } from "zod";
 import { serverEnv } from "@/lib/serverEnv";
 
-/**
- * Auth.js configuration.
- *
- * This service owns the **session**. It does not own the **user** — it has no database access at all.
- * User records are created and verified by the backend through service-token endpoints, so Postgres
- * sits behind exactly one process and the tenant-isolation claim in D-011 is auditable rather than
- * aspirational. (DECISIONS.md D-001b.)
- *
- * The session strategy is `jwt`, not `database`. That is forced by the same constraint: a database
- * session strategy needs an adapter, and an adapter needs a database.
- */
-
-// No fallbacks. A `?? "http://localhost:4000"` here means "if you forget to configure me, quietly talk
-// to the wrong machine" — which on a serverless function is the function's own container. See
-// lib/serverEnv.ts; that default cost a production sign-up outage that looked like an application bug.
-
 const CredentialsSchema = z.object({
   email: z.email(),
   password: z.string().min(1),
