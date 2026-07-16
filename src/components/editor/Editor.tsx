@@ -745,9 +745,9 @@ export function Editor({
         />
       )}
 
-      {/* The bubble toolbar — only when there is a real selection, and never fighting the slash or AI
-          menus for the same screen space. */}
-      {selectionRect !== null && slash === null && aiTarget === null && (
+      {/* The bubble toolbar — only when editing (a viewer has no formatting to apply), when there is a
+          real selection, and never fighting the slash or AI menus for the same screen space. */}
+      {!readOnly && selectionRect !== null && slash === null && aiTarget === null && (
         <SelectionToolbar
           anchorRect={selectionRect}
           active={activeMarks}

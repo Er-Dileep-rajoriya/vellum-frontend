@@ -1,8 +1,8 @@
 "use client";
 
-import { ArrowLeft, History, Users } from "lucide-react";
+import { ArrowLeft, Eye, History, Users } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { SharePanel } from "@/components/collaborators/SharePanel";
 import { ConnectionIndicator, Presence } from "@/components/Presence";
@@ -48,6 +48,48 @@ export function DocumentWorkspace({
     getToken,
   );
 
+  /**
+   * The current user's role on this document.
+   *
+   * A VIEWER must not be able to edit — otherwise every keystroke is queued, pushed, and rejected by
+   * the server with a 403, and the user watches a "N changes couldn't save" counter climb while they
+   * type into a document they were never allowed to change.
+   *
+   * The role starts unknown and the editor is editable by default: locking it until a network round
+   * trip resolved would break the local-first promise for a legitimate editor opening a document
+   * offline. We tighten to read-only ONLY once the server confirms the role is VIEWER — the common,
+   * online case, and the one the screenshot shows. (The title and the server both enforce this too;
+   * this is the client mirroring the rule so it never dangles an edit affordance the server refuses.)
+   */
+  const [role, setRole] = useState<"OWNER" | "EDITOR" | "VIEWER" | null>(null);
+
+  useEffect(() => {
+    if (isDemo) return;
+    let ignore = false;
+    void (async () => {
+      try {
+        const token = await getToken();
+        const response = await fetch(`${apiUrl}/api/documents/${documentId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const body = (await response.json()) as {
+          document: { role: "OWNER" | "EDITOR" | "VIEWER" };
+        };
+        if (!ignore) setRole(body.document.role);
+      } catch {
+        // Offline / unauthenticated: leave the local-first default (editable). A legitimate editor
+        // must be able to work offline; only a confirmed VIEWER is locked.
+      }
+    })();
+    return () => {
+      ignore = true;
+    };
+  }, [documentId, apiUrl, getToken, isDemo]);
+
+  const isViewer = role === "VIEWER";
+
   return (
     <div className="flex flex-1 flex-col">
       <OfflineBanner state={sync} />
@@ -71,9 +113,20 @@ export function DocumentWorkspace({
               </span>
             ) : (
               <>
+                {isViewer && (
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
+                    title="You have view-only access to this document"
+                  >
+                    <Eye className="size-3.5" aria-hidden />
+                    View only
+                  </span>
+                )}
                 <ConnectionIndicator status={connection} peerCount={peers.length} />
                 <Presence peers={peers} />
-                <SyncStatus state={sync} onRetry={() => store?.retryFailed()} />
+                {/* A viewer has no local changes to sync — hiding the sync counter stops it from
+                    showing a "couldn't save" state for edits they were never able to make. */}
+                {!isViewer && <SyncStatus state={sync} onRetry={() => store?.retryFailed()} />}
               </>
             )}
 
@@ -119,7 +172,7 @@ export function DocumentWorkspace({
               <Editor
                 store={store}
                 blocks={blocks}
-                readOnly={false}
+                readOnly={isViewer}
                 documentId={documentId}
                 apiUrl={apiUrl}
                 getToken={getToken}
@@ -136,7 +189,9 @@ export function DocumentWorkspace({
             store={store}
             apiUrl={apiUrl}
             getToken={getToken}
-            canRestore
+            // A viewer can browse history but not restore — restoring writes operations, which the
+            // server refuses for a viewer anyway.
+            canRestore={!isViewer}
             onClose={() => setHistoryOpen(false)}
           />
         )}
