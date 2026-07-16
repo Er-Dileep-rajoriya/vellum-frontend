@@ -55,12 +55,14 @@ export class CollaboratorApi {
   async #send(method: string, path: string, body?: unknown): Promise<Response> {
     const token = await this.#getToken();
 
+    // Content-Type only when there is a body. A DELETE (remove/leave) carries none, and a json
+    // content-type on an empty body makes Fastify reject it with "Body cannot be empty".
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+
     const response = await fetch(`${this.#baseUrl}${path}`, {
       method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
+      headers,
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
 

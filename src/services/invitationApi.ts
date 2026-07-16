@@ -97,12 +97,15 @@ export class InvitationApi {
   async #send(method: string, path: string, body?: unknown): Promise<Response> {
     const token = await this.#getToken();
 
+    // Set Content-Type ONLY when there is a body. accept/decline/resend are POSTs with no body, and a
+    // `Content-Type: application/json` header on an empty body makes Fastify reject the request with
+    // "Body cannot be empty when content-type is set to 'application/json'".
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+
     const response = await fetch(`${this.#baseUrl}${path}`, {
       method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
+      headers,
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
 
