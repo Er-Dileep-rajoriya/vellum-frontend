@@ -4,9 +4,9 @@ import { VerifyEmailForm } from "@/components/auth/VerifyEmailForm";
 export default async function VerifyEmailPage({
   searchParams,
 }: {
-  readonly searchParams: Promise<{ email?: string }>;
+  readonly searchParams: Promise<{ email?: string; callbackUrl?: string }>;
 }) {
-  const { email } = await searchParams;
+  const { email, callbackUrl } = await searchParams;
 
   return (
     <main className="mx-auto flex flex-1 w-full max-w-sm flex-col justify-center px-6">
@@ -15,7 +15,7 @@ export default async function VerifyEmailPage({
         We sent a 6-digit code to your inbox. Enter it below to activate your account.
       </p>
 
-      <VerifyEmailForm initialEmail={email ?? ""} />
+      <VerifyEmailForm initialEmail={email ?? ""} callbackUrl={callbackUrl} />
     </main>
   );
 }

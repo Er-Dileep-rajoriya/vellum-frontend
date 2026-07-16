@@ -24,12 +24,15 @@ import { cn } from "@/lib/utils";
 
 export interface BlockViewProps {
   readonly block: RenderedBlock;
+  /** For numbered-list blocks: this item's 1-based position in its run. Undefined for other types. */
+  readonly ordinal?: number | undefined;
   readonly isFocused: boolean;
   readonly selection: Selection | null;
   readonly readOnly: boolean;
   readonly onBeforeInput: (blockId: string, event: InputEvent) => void;
   readonly onKeyDown: (blockId: string, event: React.KeyboardEvent) => void;
   readonly onSelect: (blockId: string) => void;
+  readonly onToggleTodo: (blockId: string) => void;
   readonly registerRef: (blockId: string, element: HTMLElement | null) => void;
 }
 
@@ -43,12 +46,14 @@ export interface BlockViewProps {
  */
 export const BlockView = memo(function BlockView({
   block,
+  ordinal,
   isFocused,
   selection,
   readOnly,
   onBeforeInput,
   onKeyDown,
   onSelect,
+  onToggleTodo,
   registerRef,
 }: BlockViewProps) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -141,6 +146,7 @@ export const BlockView = memo(function BlockView({
    * `focus`) exists on HTMLElement anyway.
    */
   const Tag = tagFor(block.type) as "div";
+  const checked = block.type === "todo" && block.attrs["checked"] === true;
 
   return (
     <div
@@ -170,13 +176,25 @@ export const BlockView = memo(function BlockView({
       {block.type === "bulletList" && (
         <span aria-hidden className="mt-[0.55rem] size-1.5 shrink-0 rounded-full bg-foreground/60" />
       )}
+      {block.type === "numberedList" && (
+        <span
+          aria-hidden
+          className="mt-[0.1rem] min-w-[1.5rem] shrink-0 text-right text-base tabular-nums leading-7 text-foreground/60"
+        >
+          {ordinal ?? 1}.
+        </span>
+      )}
       {block.type === "todo" && (
         <input
           type="checkbox"
-          checked={block.attrs["checked"] === true}
-          readOnly
+          checked={checked}
+          disabled={readOnly}
+          // A real toggle now: clicking emits a BLOCK_SET_ATTRS operation via the editor, so a checked
+          // box syncs, merges, versions, and undoes like every other change. `onMouseDown` is left
+          // alone — a checkbox is outside the contenteditable, so toggling it does not disturb a caret.
+          onChange={() => onToggleTodo(block.id)}
           aria-label="To-do"
-          className="mt-[0.4rem] size-4 shrink-0 rounded border-foreground/30"
+          className="mt-[0.45rem] size-4 shrink-0 cursor-pointer rounded border-foreground/30 accent-foreground disabled:cursor-default"
         />
       )}
 
@@ -199,6 +217,7 @@ export const BlockView = memo(function BlockView({
           "min-h-[1.6em] w-full flex-1 outline-none",
           "empty:before:pointer-events-none empty:before:text-muted-foreground/60 empty:before:content-[attr(data-placeholder)]",
           STYLES[block.type],
+          checked && "text-muted-foreground/70 line-through",
           readOnly && "cursor-default",
         )}
       />

@@ -83,8 +83,13 @@ export function AuthForm({
 
         // Do NOT sign in yet: the account is created but unverified, and the backend refuses a
         // credentials login until the emailed code is confirmed. Send the user to the verify screen
-        // (which the register call already dispatched a code for) with their address prefilled.
-        router.push(`/verify-email?email=${encodeURIComponent(values.email)}`);
+        // (which the register call already dispatched a code for) with their address prefilled — and
+        // carry the callbackUrl through, so an invited user who signs up lands back on the invite.
+        const verifyParams = new URLSearchParams({ email: values.email });
+        if (callbackUrl !== "" && callbackUrl !== "/documents") {
+          verifyParams.set("callbackUrl", callbackUrl);
+        }
+        router.push(`/verify-email?${verifyParams.toString()}`);
         return;
       }
 
@@ -121,6 +126,19 @@ export function AuthForm({
   const verifyHref = emailValue
     ? `/verify-email?email=${encodeURIComponent(emailValue)}`
     : "/verify-email";
+
+  // Carry the callbackUrl across the sign-in ↔ sign-up switch, so an invited user bouncing between the
+  // two forms never loses the invite they were headed to. The default "/documents" is left off to keep
+  // the URL clean.
+  const carryCallback = callbackUrl !== "" && callbackUrl !== "/documents";
+  const switchHref =
+    mode === "signin"
+      ? carryCallback
+        ? `/signup?callbackUrl=${encodeURIComponent(callbackUrl)}`
+        : "/signup"
+      : carryCallback
+        ? `/login?callbackUrl=${encodeURIComponent(callbackUrl)}`
+        : "/login";
 
   return (
     <div className="mt-8">
@@ -221,10 +239,7 @@ export function AuthForm({
 
       <p className="mt-6 text-center text-sm text-muted-foreground">
         {mode === "signin" ? "Don't have an account?" : "Already have an account?"}{" "}
-        <Link
-          href={mode === "signin" ? "/signup" : "/login"}
-          className="font-medium text-foreground underline underline-offset-4"
-        >
+        <Link href={switchHref} className="font-medium text-foreground underline underline-offset-4">
           {mode === "signin" ? "Sign up" : "Sign in"}
         </Link>
       </p>

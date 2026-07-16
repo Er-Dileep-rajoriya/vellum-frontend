@@ -16,16 +16,17 @@ export interface Collaborator {
 }
 
 /**
- * The collaborator-management API client.
+ * The collaborator-management API client — for people who ALREADY have access.
  *
- * A thin mirror of the backend's `/documents/:id/collaborators` surface, following the same shape as
- * {@link VersionApi}: a bearer token per call, and any non-2xx collapsed into a {@link SyncHttpError}
- * carrying the backend's error code so the UI can turn "the invitee has no account" (404) into a
- * sentence a human can act on rather than a raw status.
+ * A thin mirror of the backend's `/documents/:id/collaborators` surface: list the roster, change a
+ * role, remove someone (or leave yourself). Following the same shape as {@link VersionApi}: a bearer
+ * token per call, and any non-2xx collapsed into a {@link SyncHttpError}.
  *
- * Like versions, this is NOT part of the sync engine. Sharing is a deliberate human action with no
- * offline-queue semantics: if you are offline you cannot invite someone, and that is honest — the
- * person you are inviting is on the server, not on your device.
+ * Adding a NEW person is not here — that goes through {@link InvitationApi}, because sharing sends an
+ * email invitation the recipient must accept; it is never a direct write to the collaborator table.
+ *
+ * This is NOT part of the sync engine. Managing access is a deliberate human action with no
+ * offline-queue semantics: the people involved live on the server, not on your device.
  */
 export class CollaboratorApi {
   readonly #baseUrl: string;
@@ -40,15 +41,6 @@ export class CollaboratorApi {
     const response = await this.#send("GET", `/api/documents/${documentId}/collaborators`);
     const body = (await response.json()) as { collaborators: Collaborator[] };
     return body.collaborators;
-  }
-
-  async invite(documentId: string, email: string, role: InviteRole): Promise<Collaborator> {
-    const response = await this.#send("POST", `/api/documents/${documentId}/collaborators`, {
-      email,
-      role,
-    });
-    const body = (await response.json()) as { collaborator: Collaborator };
-    return body.collaborator;
   }
 
   async changeRole(documentId: string, userId: string, role: InviteRole): Promise<void> {

@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Operation } from "@/crdt/operations";
-import type { RenderedBlock } from "@/crdt/types";
+import type { MarkType, RenderedBlock } from "@/crdt/types";
 import {
   collapsed,
   deleteBackward,
@@ -27,6 +27,7 @@ import type { TokenProvider } from "@/services/transport";
 
 import { BlockView } from "./BlockView";
 import { RemoteCursors } from "./RemoteCursors";
+import { SelectionToolbar } from "./SelectionToolbar";
 import { SlashMenu } from "./SlashMenu";
 
 /**
@@ -83,8 +84,31 @@ export function Editor({
   const [aiTarget, setAiTarget] = useState<{ blockId: string; selection: Selection } | null>(null);
   const [focusedBlockId, setFocusedBlockId] = useState<string | null>(null);
   const [slash, setSlash] = useState<SlashState | null>(null);
+  /** The live bounding rect of a non-empty selection, for positioning the bubble toolbar. */
+  const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
 
   const elements = useRef(new Map<string, HTMLElement>());
+
+  /**
+   * Ordinals for numbered-list blocks — `1.`, `2.`, `3.`, restarting after any non-numbered block.
+   *
+   * Computed here (where the whole ordered list of blocks is known) rather than in BlockView (which
+   * sees one block and could not count its predecessors). Memoised on `blocks`, so it recomputes only
+   * when the document structure changes, not on every keystroke inside a paragraph.
+   */
+  const ordinals = useMemo(() => {
+    const map = new Map<string, number>();
+    let counter = 0;
+    for (const block of blocks) {
+      if (block.type === "numberedList") {
+        counter += 1;
+        map.set(block.id, counter);
+      } else {
+        counter = 0;
+      }
+    }
+    return map;
+  }, [blocks]);
 
   /**
    * Undo history — LOCAL-ORIGIN ONLY.
@@ -534,6 +558,94 @@ export function Editor({
     [slash, contextFor, store],
   );
 
+  /** Toggle a to-do's checkbox — a BLOCK_SET_ATTRS operation, like any other change. */
+  const handleToggleTodo = useCallback(
+    (blockId: string) => {
+      if (readOnly) return;
+      const block = blocks.find((candidate) => candidate.id === blockId);
+      if (block === undefined) return;
+
+      const checked = block.attrs["checked"] === true;
+      store.applyLocal([store.factory.setBlockAttrs(blockId, { checked: !checked }, "todo")]);
+    },
+    [blocks, readOnly, store],
+  );
+
+  // The block the caret is in, and whether each mark covers the whole current selection — drives the
+  // bubble toolbar's pressed state. Recomputed only when the block or selection changes.
+  const activeBlock = focusedBlockId !== null ? blocks.find((b) => b.id === focusedBlockId) : undefined;
+
+  const activeMarks = useMemo(() => {
+    const none = { bold: false, italic: false, code: false };
+    if (activeBlock === undefined || selection === null || selection.selected.length === 0) {
+      return none;
+    }
+    const everyCharHas = (mark: MarkType): boolean =>
+      selection.selected.every((id) => {
+        const index = activeBlock.charIds.indexOf(id);
+        return index !== -1 && activeBlock.marks[index]?.[mark] === true;
+      });
+    return { bold: everyCharHas("bold"), italic: everyCharHas("italic"), code: everyCharHas("code") };
+  }, [activeBlock, selection]);
+
+  const applyMark = useCallback(
+    (mark: MarkType) => {
+      if (focusedBlockId === null || selection === null) return;
+      const context = contextFor(focusedBlockId, selection);
+      if (context === null) return;
+      commit(toggleMark(context, mark), "format");
+    },
+    [focusedBlockId, selection, contextFor, commit],
+  );
+
+  const openAiForSelection = useCallback(() => {
+    if (focusedBlockId === null || selection === null) return;
+    setAiTarget({ blockId: focusedBlockId, selection });
+  }, [focusedBlockId, selection]);
+
+  /**
+   * Position the bubble toolbar by measuring the live DOM selection.
+   *
+   * The measurement runs inside event callbacks — selectionchange, and scroll/resize so the toolbar
+   * stays glued to the text as the page moves — never synchronously in the effect body. That is the
+   * "subscribe to an external system and setState in its callback" pattern React sanctions (and the
+   * same shape as the presence listener above); measuring in the effect body would be the cascading
+   * setState-in-effect the compiler rejects. The toolbar shows only for a non-collapsed selection that
+   * lives inside a block.
+   */
+  useEffect(() => {
+    const measure = (): void => {
+      const domSelection = window.getSelection();
+      if (domSelection === null || domSelection.rangeCount === 0 || domSelection.isCollapsed) {
+        setSelectionRect(null);
+        return;
+      }
+
+      const range = domSelection.getRangeAt(0);
+      const container = range.commonAncestorContainer;
+      const element =
+        container.nodeType === Node.ELEMENT_NODE
+          ? (container as Element)
+          : container.parentElement;
+      if (element === null || element.closest("[data-block-id]") === null) {
+        setSelectionRect(null);
+        return;
+      }
+
+      const rect = range.getBoundingClientRect();
+      setSelectionRect(rect.width === 0 && rect.height === 0 ? null : rect);
+    };
+
+    document.addEventListener("selectionchange", measure);
+    window.addEventListener("scroll", measure, true);
+    window.addEventListener("resize", measure);
+    return () => {
+      document.removeEventListener("selectionchange", measure);
+      window.removeEventListener("scroll", measure, true);
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+
   /**
    * Stable handler identities, via a "latest ref".
    *
@@ -546,7 +658,7 @@ export function Editor({
    * time, so the behaviour is always up to date while the prop is always the same object. One keystroke
    * re-renders one block, whether the document has five blocks or five thousand.
    */
-  const latest = useRef({ handleBeforeInput, handleKeyDown, handleSelect });
+  const latest = useRef({ handleBeforeInput, handleKeyDown, handleSelect, handleToggleTodo });
 
   /**
    * The ref is written in an effect, NOT during render.
@@ -561,8 +673,8 @@ export function Editor({
    * unobservable.
    */
   useEffect(() => {
-    latest.current = { handleBeforeInput, handleKeyDown, handleSelect };
-  }, [handleBeforeInput, handleKeyDown, handleSelect]);
+    latest.current = { handleBeforeInput, handleKeyDown, handleSelect, handleToggleTodo };
+  }, [handleBeforeInput, handleKeyDown, handleSelect, handleToggleTodo]);
 
   const onBeforeInput = useCallback((blockId: string, event: InputEvent) => {
     latest.current.handleBeforeInput(blockId, event);
@@ -572,6 +684,9 @@ export function Editor({
   }, []);
   const onSelect = useCallback((blockId: string) => {
     latest.current.handleSelect(blockId);
+  }, []);
+  const onToggleTodo = useCallback((blockId: string) => {
+    latest.current.handleToggleTodo(blockId);
   }, []);
 
   const getBlockElement = useCallback(
@@ -588,12 +703,14 @@ export function Editor({
           <BlockView
             key={block.id}
             block={block}
+            ordinal={ordinals.get(block.id)}
             isFocused={focusedBlockId === block.id}
             selection={focusedBlockId === block.id ? selection : null}
             readOnly={readOnly}
             onBeforeInput={onBeforeInput}
             onKeyDown={onKeyDown}
             onSelect={onSelect}
+            onToggleTodo={onToggleTodo}
             registerRef={registerRef}
           />
         ))}
@@ -625,6 +742,19 @@ export function Editor({
           anchorElement={slash.anchor}
           onSelect={handleSlashCommand}
           onDismiss={() => setSlash(null)}
+        />
+      )}
+
+      {/* The bubble toolbar — only when there is a real selection, and never fighting the slash or AI
+          menus for the same screen space. */}
+      {selectionRect !== null && slash === null && aiTarget === null && (
+        <SelectionToolbar
+          anchorRect={selectionRect}
+          active={activeMarks}
+          onBold={() => applyMark("bold")}
+          onItalic={() => applyMark("italic")}
+          onCode={() => applyMark("code")}
+          onAi={openAiForSelection}
         />
       )}
     </div>

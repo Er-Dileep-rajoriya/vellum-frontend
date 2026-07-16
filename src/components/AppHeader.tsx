@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut } from "lucide-react";
+import { FileText, LogOut } from "lucide-react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { useState } from "react";
@@ -42,12 +42,25 @@ export function AppHeader({
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur">
       <div className="flex h-14 items-center justify-between gap-4 px-4 sm:px-6">
-        <Link
-          href={authed ? "/documents" : "/"}
-          className="text-sm font-semibold tracking-tight transition-opacity hover:opacity-70"
-        >
-          Vellum
-        </Link>
+        <div className="flex items-center gap-1">
+          <Link
+            href={authed ? "/documents" : "/"}
+            className="text-sm font-semibold tracking-tight transition-opacity hover:opacity-70"
+          >
+            Vellum
+          </Link>
+
+          {/* Documents is always reachable from the header. For a signed-out visitor the link still
+              points at /documents; the middleware bounces them to /login?callbackUrl=/documents, so
+              signing in lands them exactly where they were headed. */}
+          <Link
+            href="/documents"
+            className="ml-2 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <FileText className="size-4" aria-hidden />
+            <span className="hidden sm:inline">Documents</span>
+          </Link>
+        </div>
 
         <div className="flex items-center gap-1">
           <ThemeToggle />

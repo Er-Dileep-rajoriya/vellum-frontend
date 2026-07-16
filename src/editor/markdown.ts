@@ -159,7 +159,6 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   { id: "code", label: "Code", description: "Code with syntax highlighting", type: "code", keywords: ["snippet", "pre"] },
   { id: "divider", label: "Divider", description: "Visually divide blocks", type: "divider", keywords: ["hr", "line"] },
   { id: "callout", label: "Callout", description: "Make writing stand out", type: "callout", keywords: ["note", "info"] },
-  { id: "table", label: "Table", description: "Add a table", type: "table", keywords: ["grid"] },
 ];
 
 export function filterSlashCommands(query: string): readonly SlashCommand[] {

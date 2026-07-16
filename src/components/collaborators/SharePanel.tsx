@@ -1,30 +1,29 @@
 "use client";
 
-import { Check, Loader2, LogOut, UserPlus, X } from "lucide-react";
+import { Check, Clock, Loader2, LogOut, Mail, Send, UserPlus, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { CollaboratorApi, type Collaborator } from "@/services/collaboratorApi";
 import {
-  CollaboratorApi,
-  type Collaborator,
+  InvitationApi,
+  type Invitation,
   type InviteRole,
-} from "@/services/collaboratorApi";
+} from "@/services/invitationApi";
 import { SyncHttpError } from "@/sync-engine/backoff";
 import type { TokenProvider } from "@/services/transport";
 import { cn } from "@/lib/utils";
 
 /**
- * Share a document: invite people by email, change their role, remove them — or leave a document
- * someone shared with you.
+ * Share a document: invite people by email, manage who has access, or leave a document someone shared
+ * with you.
  *
- * Authorization is mirrored from the backend rather than reinvented: only an OWNER has the `manage`
- * capability, so only an owner sees the invite form and the per-collaborator controls. Everyone else
- * sees a read-only roster (useful — "who else is in here?") plus, if they are not the owner, a way to
- * leave. The server enforces all of this regardless; the UI just refuses to dangle a control it knows
- * will 403.
+ * Inviting does NOT grant access directly — it sends an email invitation the recipient must accept
+ * (see InvitationApi / the /invite page). So the panel has two lists: **people with access** (accepted
+ * collaborators) and **pending invitations** (sent, awaiting acceptance, resend/revoke-able).
  *
- * Invite is by email of an EXISTING account (the backend does not create shell users — that would be a
- * spam and enumeration vector), so a missing account comes back as a 404 and is shown as a sentence,
- * not a status code.
+ * Authorization mirrors the backend: only an OWNER has `manage`, so only an owner sees the invite form,
+ * the pending list, and the per-collaborator controls. Everyone else sees a read-only roster and, if
+ * they are not the owner, a way to leave. The server enforces all of it regardless.
  */
 export function SharePanel({
   documentId,
@@ -39,9 +38,11 @@ export function SharePanel({
   readonly currentUserId: string | null;
   readonly onClose: () => void;
 }) {
-  const api = useMemo(() => new CollaboratorApi(apiUrl, getToken), [apiUrl, getToken]);
+  const collabApi = useMemo(() => new CollaboratorApi(apiUrl, getToken), [apiUrl, getToken]);
+  const inviteApi = useMemo(() => new InvitationApi(apiUrl, getToken), [apiUrl, getToken]);
 
   const [collaborators, setCollaborators] = useState<Collaborator[] | null>(null);
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [email, setEmail] = useState("");
@@ -50,21 +51,30 @@ export function SharePanel({
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteOk, setInviteOk] = useState<string | null>(null);
 
-  // The userId of a row whose role/removal request is in flight — disables just that row's controls.
   const [rowBusy, setRowBusy] = useState<string | null>(null);
-  // Two-step confirm for removal, inline rather than a nested modal (a modal over a modal is a focus
-  // trap fighting a focus trap).
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 
   useEffect(() => {
     let ignore = false;
     void (async () => {
       try {
-        const list = await api.list(documentId);
-        if (!ignore) setCollaborators(list);
+        const roster = await collabApi.list(documentId);
+        if (ignore) return;
+        setCollaborators(roster);
+
+        // Pending invitations are manage-only. Fetch them only if we own the document — a non-owner
+        // GET would 403, and there is nothing for them to manage anyway.
+        const mine = roster.find((c) => c.userId === currentUserId)?.role;
+        if (mine === "OWNER") {
+          try {
+            const pending = await inviteApi.listPending(documentId);
+            if (!ignore) setInvitations(pending);
+          } catch {
+            /* pending list is a nicety; a failure here should not blank the whole panel */
+          }
+        }
       } catch {
         if (ignore) return;
-        // The roster is server data. Offline, it genuinely cannot be shown — unlike the document itself.
         setLoadError("Sharing is unavailable offline.");
         setCollaborators([]);
       }
@@ -72,7 +82,7 @@ export function SharePanel({
     return () => {
       ignore = true;
     };
-  }, [api, documentId]);
+  }, [collabApi, inviteApi, documentId, currentUserId]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -84,6 +94,7 @@ export function SharePanel({
 
   const myRole = collaborators?.find((c) => c.userId === currentUserId)?.role ?? null;
   const canManage = myRole === "OWNER";
+  const iAmOwner = myRole === "OWNER";
 
   const invite = useCallback(async () => {
     const trimmed = email.trim();
@@ -93,28 +104,65 @@ export function SharePanel({
     setInviteError(null);
     setInviteOk(null);
     try {
-      const collaborator = await api.invite(documentId, trimmed, role);
-      // Upsert: re-inviting an existing collaborator updates their role (the backend does the same),
-      // so replace an existing row rather than appending a duplicate.
-      setCollaborators((prev) => {
-        const rest = (prev ?? []).filter((c) => c.userId !== collaborator.userId);
-        return [...rest, collaborator];
-      });
+      const { invitation, emailSent } = await inviteApi.create(documentId, trimmed, role);
+      // Replace any existing pending invite for the same email; otherwise prepend.
+      setInvitations((prev) => [invitation, ...prev.filter((i) => i.email !== invitation.email)]);
       setEmail("");
-      setInviteOk(`Shared with ${collaborator.email}.`);
+      setInviteOk(
+        emailSent
+          ? `Invitation sent to ${invitation.email}.`
+          : `Invitation created for ${invitation.email}, but the email didn't go out. Use “Resend”.`,
+      );
     } catch (error) {
       setInviteError(inviteMessage(error));
     } finally {
       setInviting(false);
     }
-  }, [api, documentId, email, role]);
+  }, [inviteApi, documentId, email, role]);
+
+  const resend = useCallback(
+    async (invitation: Invitation) => {
+      setRowBusy(invitation.id);
+      setInviteError(null);
+      setInviteOk(null);
+      try {
+        const { emailSent } = await inviteApi.resend(documentId, invitation.id);
+        setInviteOk(
+          emailSent
+            ? `Invitation re-sent to ${invitation.email}.`
+            : `Couldn't send the email to ${invitation.email}. Try again shortly.`,
+        );
+      } catch (error) {
+        setInviteError(inviteMessage(error));
+      } finally {
+        setRowBusy(null);
+      }
+    },
+    [inviteApi, documentId],
+  );
+
+  const revokeInvite = useCallback(
+    async (invitation: Invitation) => {
+      setRowBusy(invitation.id);
+      setInviteError(null);
+      try {
+        await inviteApi.revoke(documentId, invitation.id);
+        setInvitations((prev) => prev.filter((i) => i.id !== invitation.id));
+      } catch (error) {
+        setInviteError(inviteMessage(error));
+      } finally {
+        setRowBusy(null);
+      }
+    },
+    [inviteApi, documentId],
+  );
 
   const changeRole = useCallback(
     async (userId: string, next: InviteRole) => {
       setRowBusy(userId);
       setInviteError(null);
       try {
-        await api.changeRole(documentId, userId, next);
+        await collabApi.changeRole(documentId, userId, next);
         setCollaborators((prev) =>
           (prev ?? []).map((c) => (c.userId === userId ? { ...c, role: next } : c)),
         );
@@ -124,18 +172,17 @@ export function SharePanel({
         setRowBusy(null);
       }
     },
-    [api, documentId],
+    [collabApi, documentId],
   );
 
-  const remove = useCallback(
+  const removeCollaborator = useCallback(
     async (userId: string) => {
       setRowBusy(userId);
       setInviteError(null);
       try {
-        await api.remove(documentId, userId);
+        await collabApi.remove(documentId, userId);
         setCollaborators((prev) => (prev ?? []).filter((c) => c.userId !== userId));
         setConfirmRemove(null);
-        // Leaving your own document means you can no longer see it — close and let the list refetch.
         if (userId === currentUserId) onClose();
       } catch (error) {
         setInviteError(inviteMessage(error));
@@ -143,10 +190,8 @@ export function SharePanel({
         setRowBusy(null);
       }
     },
-    [api, documentId, currentUserId, onClose],
+    [collabApi, documentId, currentUserId, onClose],
   );
-
-  const iAmOwner = myRole === "OWNER";
 
   return (
     <div
@@ -185,7 +230,7 @@ export function SharePanel({
                 event.preventDefault();
                 void invite();
               }}
-              className="mb-4"
+              className="mb-5"
             >
               <label htmlFor="invite-email" className="mb-1.5 block text-xs font-medium text-muted-foreground">
                 Invite by email
@@ -237,18 +282,67 @@ export function SharePanel({
               )}
 
               <p className="mt-2 text-xs text-muted-foreground">
-                Editors can write; viewers can only read. You can only invite people who already have a
-                Vellum account.
+                They&apos;ll get an email to accept. Editors can write; viewers can only read.
               </p>
             </form>
           )}
 
-          {/* A manage-level error that happened outside the invite form (a failed role change / removal
-              when the invite form is not rendered) still needs somewhere to surface. */}
           {!canManage && inviteError !== null && (
             <p role="alert" className="mb-3 text-xs text-destructive">
               {inviteError}
             </p>
+          )}
+
+          {/* Pending invitations — owner only, and only when there are any. */}
+          {canManage && invitations.length > 0 && (
+            <section className="mb-5">
+              <h3 className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Clock className="size-3.5" aria-hidden />
+                Pending invitations
+              </h3>
+              <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+                {invitations.map((inv) => {
+                  const busy = rowBusy === inv.id;
+                  return (
+                    <li key={inv.id} className="flex items-center gap-3 px-3 py-2.5">
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                        <Mail className="size-4" aria-hidden />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{inv.email}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {inv.role === "EDITOR" ? "Editor" : "Viewer"} · invited, not yet accepted
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void resend(inv)}
+                        disabled={busy}
+                        aria-label={`Resend invitation to ${inv.email}`}
+                        title="Resend email"
+                        className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                      >
+                        {busy ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden />
+                        ) : (
+                          <Send className="size-4" aria-hidden />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void revokeInvite(inv)}
+                        disabled={busy}
+                        aria-label={`Cancel invitation to ${inv.email}`}
+                        title="Cancel invitation"
+                        className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-destructive disabled:opacity-50"
+                      >
+                        <X className="size-4" aria-hidden />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
           )}
 
           <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -284,8 +378,6 @@ export function SharePanel({
                       )}
                     </div>
 
-                    {/* The owner's role is fixed: it cannot be changed or removed, by anyone, from
-                        here — ownership is transferred, not edited. */}
                     {isOwnerRow ? (
                       <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                         Owner
@@ -295,7 +387,7 @@ export function SharePanel({
                         <span className="flex shrink-0 items-center gap-1">
                           <button
                             type="button"
-                            onClick={() => void remove(c.userId)}
+                            onClick={() => void removeCollaborator(c.userId)}
                             disabled={busy}
                             className="rounded-md bg-destructive px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
                           >
@@ -345,12 +437,10 @@ export function SharePanel({
             </ul>
           )}
 
-          {/* Not the owner → you cannot invite, but you can walk away. Self-removal is allowed by the
-              backend without `manage` for exactly this. */}
           {collaborators !== null && myRole !== null && !iAmOwner && currentUserId !== null && (
             <button
               type="button"
-              onClick={() => void remove(currentUserId)}
+              onClick={() => void removeCollaborator(currentUserId)}
               disabled={rowBusy === currentUserId}
               className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-destructive disabled:opacity-50"
             >
@@ -367,15 +457,11 @@ export function SharePanel({
 /** Turn a backend error into something a person can act on. */
 function inviteMessage(error: unknown): string {
   if (error instanceof SyncHttpError) {
-    if (error.status === 404) {
-      return "No Vellum account uses that email. Ask them to sign up first.";
-    }
-    if (error.status === 403) {
-      return "Only the document's owner can manage sharing.";
-    }
+    if (error.status === 403) return "Only the document's owner can manage sharing.";
     if (error.status === 400 || error.status === 422) {
       return error.message || "That email doesn't look right.";
     }
+    if (error.status === 404) return "That invitation no longer exists.";
   }
   return "Something went wrong. Check your connection and try again.";
 }

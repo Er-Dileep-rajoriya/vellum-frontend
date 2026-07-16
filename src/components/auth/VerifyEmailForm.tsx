@@ -13,7 +13,13 @@ import { cn } from "@/lib/utils";
  * asking the user to retype the address they just registered with is friction with no purpose. It
  * stays editable only for the rare case of a mistyped query param.
  */
-export function VerifyEmailForm({ initialEmail }: { readonly initialEmail: string }) {
+export function VerifyEmailForm({
+  initialEmail,
+  callbackUrl,
+}: {
+  readonly initialEmail: string;
+  readonly callbackUrl?: string | undefined;
+}) {
   const router = useRouter();
   const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState("");
@@ -41,7 +47,11 @@ export function VerifyEmailForm({ initialEmail }: { readonly initialEmail: strin
         return;
       }
 
-      router.push("/login?verified=1");
+      // Carry the callbackUrl (e.g. an invite the user was headed to) through to the sign-in step, so
+      // verifying their email lands them back where they started rather than on a generic dashboard.
+      const loginParams = new URLSearchParams({ verified: "1" });
+      if (callbackUrl !== undefined && callbackUrl !== "") loginParams.set("callbackUrl", callbackUrl);
+      router.push(`/login?${loginParams.toString()}`);
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {

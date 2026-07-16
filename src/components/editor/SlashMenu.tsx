@@ -1,10 +1,39 @@
 "use client";
 
+import {
+  Code,
+  Heading1,
+  Heading2,
+  Heading3,
+  Info,
+  List,
+  ListChecks,
+  ListOrdered,
+  type LucideIcon,
+  Minus,
+  Quote,
+  Type,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { BlockType } from "@/crdt/types";
 import { filterSlashCommands } from "@/editor/markdown";
 import { cn } from "@/lib/utils";
+
+/** An icon per block type, so the menu reads at a glance rather than as a wall of text. */
+const ICONS: Partial<Record<BlockType, LucideIcon>> = {
+  paragraph: Type,
+  heading1: Heading1,
+  heading2: Heading2,
+  heading3: Heading3,
+  bulletList: List,
+  numberedList: ListOrdered,
+  todo: ListChecks,
+  quote: Quote,
+  code: Code,
+  divider: Minus,
+  callout: Info,
+};
 
 /**
  * The slash menu.
@@ -96,31 +125,42 @@ export function SlashMenu({ query, anchorElement, onSelect, onDismiss }: SlashMe
         left: rect?.left ?? 0,
       }}
     >
-      {commands.map((command, index) => (
-        <li key={command.id}>
-          <button
-            id={`slash-${command.id}`}
-            type="button"
-            role="option"
-            aria-selected={index === highlighted}
-            // `onMouseDown` with preventDefault, NOT onClick: a click would first blur the
-            // contenteditable, which collapses the selection we are about to act on. Preventing the
-            // default mousedown keeps focus — and the caret — exactly where it was.
-            onMouseDown={(event) => {
-              event.preventDefault();
-              onSelect(command.type);
-            }}
-            onMouseEnter={() => setHighlighted(index)}
-            className={cn(
-              "flex w-full flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-left transition-colors",
-              index === highlighted ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
-            )}
-          >
-            <span className="text-sm font-medium">{command.label}</span>
-            <span className="text-xs text-muted-foreground">{command.description}</span>
-          </button>
-        </li>
-      ))}
+      {commands.map((command, index) => {
+        const Icon = ICONS[command.type] ?? Type;
+        return (
+          <li key={command.id}>
+            <button
+              id={`slash-${command.id}`}
+              type="button"
+              role="option"
+              aria-selected={index === highlighted}
+              // `onMouseDown` with preventDefault, NOT onClick: a click would first blur the
+              // contenteditable, which collapses the selection we are about to act on. Preventing the
+              // default mousedown keeps focus — and the caret — exactly where it was.
+              onMouseDown={(event) => {
+                event.preventDefault();
+                onSelect(command.type);
+              }}
+              onMouseEnter={() => setHighlighted(index)}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
+                index === highlighted ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
+              )}
+            >
+              <span
+                className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground"
+                aria-hidden
+              >
+                <Icon className="size-4" />
+              </span>
+              <span className="flex min-w-0 flex-col">
+                <span className="text-sm font-medium">{command.label}</span>
+                <span className="truncate text-xs text-muted-foreground">{command.description}</span>
+              </span>
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 }
