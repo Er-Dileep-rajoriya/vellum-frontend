@@ -12,6 +12,25 @@ Auth.js  ·  Dexie (IndexedDB)  ·  a hand-rolled CRDT  ·  deployed on Vercel
 
 ---
 
+## Author & submission
+
+Built by **Dileep Rajoriya** — House of Edtech, Fullstack Developer Assignment 2.
+
+| | |
+|---|---|
+| 🌐 **Live demo** | https://vellum.paperflow.in |
+| 💻 **Frontend repo** | https://github.com/Er-Dileep-rajoriya/vellum-frontend |
+| ⚙️ **Backend repo** | https://github.com/Er-Dileep-rajoriya/vellum-backend |
+| 👤 **GitHub** | https://github.com/Er-Dileep-rajoriya |
+| 🔗 **LinkedIn** | https://www.linkedin.com/in/dileep-rajoriya-a63a561ba/ |
+
+> The app is **two repositories** — a stateless Next.js frontend (this repo, on Vercel) and a
+> long-lived Fastify API + WebSocket relay (backend repo, on EC2). That split is forced by one fact: a
+> serverless function cannot hold a WebSocket. See *The three ideas* below for why it is also what
+> makes the system safe.
+
+---
+
 ## The three ideas
 
 ### 1. The client is the source of truth
@@ -103,9 +122,28 @@ from the outbox, so a crash between the two cannot lose a write. Loss must be lo
   that moves out of order lets a pull skip a page of operations: silent, permanent loss dressed up as an
   optimisation).
 
+### Sharing, roles & invitations
+Every document has three roles — **Owner · Editor · Viewer** — enforced on the server and mirrored in the
+UI so it never dangles an affordance the API will refuse.
+
+- **Invite by email, accept to join.** Sharing is *not* a direct write to the collaborator table: the
+  owner sends an email invitation (a capability-token link, delivered via AWS SES) and the invitee grants
+  themselves access by **accepting** while signed in. The invitee need not have an account yet — the
+  invite is keyed by email, and a brand-new user is carried through sign-up → verify → back to the invite
+  via a threaded `callbackUrl`.
+- **Accept requires the invited email.** A leaked link cannot grant a *different* account access, and the
+  accept page hides the document title on an email mismatch — no invite link becomes a title oracle.
+- **Owner controls:** a share panel with the live roster (change role / remove), a **pending-invitations**
+  list with **resend** and **revoke**, and per-document **delete**. Non-owners see a read-only roster and a
+  **leave** button.
+- **A Viewer is genuinely read-only.** The editor is put into read-only mode for viewers — typing is
+  disabled at `beforeinput`, the formatting toolbar is hidden, and restore is disabled — so a viewer never
+  watches a *"N changes couldn't save"* counter climb for edits the server was always going to reject.
+
 ### Editor
-Markdown shortcuts · slash commands · keyboard shortcuts · undo/redo · formatting · lists · to-dos ·
-quotes · code blocks · dividers · callouts · autosave.
+Markdown shortcuts · slash commands (with icons) · keyboard shortcuts · **selection bubble toolbar**
+(bold / italic / code / Ask AI) · undo/redo · formatting · bulleted & **numbered** lists ·
+**interactive to-dos** · quotes · code blocks · dividers · callouts · autosave.
 
 Built on native `beforeinput` with `preventDefault()` on everything: **the browser reports intent, the CRDT
 decides what happens, and the DOM is a projection.** One `contenteditable` per block, so the browser's DOM
@@ -230,7 +268,7 @@ Open http://localhost:3000, sign up, and write. **Then turn off your Wi-Fi and k
 | Command | What it does |
 |---|---|
 | `pnpm dev` | Dev server |
-| `pnpm test` | 68 unit tests — **incl. the CRDT convergence fuzz test** |
+| `pnpm test` | 70 unit tests — **incl. the CRDT convergence fuzz test** |
 | `pnpm bench` | Typing latency + scaling laws (runs alone — see below) |
 | `pnpm test:e2e` | 12 Playwright tests — real sign-in, then **the network is severed** |
 | `pnpm lint` / `pnpm typecheck` | Zero warnings, **no `any`** |
