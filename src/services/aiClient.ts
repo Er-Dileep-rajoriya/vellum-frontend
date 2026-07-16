@@ -64,29 +64,52 @@ export class AiClient {
   async *stream(options: AiStreamOptions): AsyncGenerator<string> {
     const token = await this.#getToken();
 
-    const response = await fetch(`${this.#baseUrl}/api/ai/stream`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        action: options.action,
-        documentId: options.documentId,
-        content: options.content,
-        ...(options.prompt !== undefined ? { prompt: options.prompt } : {}),
-      }),
-      ...(options.signal !== undefined ? { signal: options.signal } : {}),
-    });
+    let response: Response | null = null;
+    try {
+      response = await fetch(`${this.#baseUrl}/api/ai/stream`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: options.action,
+          documentId: options.documentId,
+          content: options.content,
+          ...(options.prompt !== undefined ? { prompt: options.prompt } : {}),
+        }),
+        ...(options.signal !== undefined ? { signal: options.signal } : {}),
+      });
+    } catch (err) {
+      console.error("[AI] Fetch failed:", err);
+      throw new Error(
+        `Failed to connect to AI service: ${err instanceof Error ? err.message : "unknown error"}`,
+      );
+    }
 
-    if (!response.ok || response.body === null) {
+    if (!response.ok) {
+      console.error("[AI] Response not OK:", response.status, response.statusText);
       const body = (await response.json().catch(() => null)) as {
         error?: { message?: string };
       } | null;
-      throw new Error(body?.error?.message ?? "the AI request failed");
+      throw new Error(body?.error?.message ?? `AI request failed with status ${response.status}`);
     }
 
-    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+    if (response.body === null) {
+      console.error("[AI] Response body is null");
+      throw new Error("AI stream response has no body");
+    }
+
+    let reader: ReadableStreamDefaultReader<string> | null = null;
+    try {
+      reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+    } catch (err) {
+      console.error("[AI] Failed to create reader:", err);
+      throw new Error(
+        `Failed to read AI stream: ${err instanceof Error ? err.message : "unknown error"}`,
+      );
+    }
+
     let buffer = "";
 
     try {
@@ -124,7 +147,10 @@ export class AiClient {
     } finally {
       // Releasing the reader cancels the underlying request, which is what tells the *server* to
       // stop generating. Skipping this leaks a stream and burns tokens.
-      await reader.cancel().catch(() => {});
+      if (reader !== null) {
+        await reader.cancel().catch(() => {});
+      }
     }
   }
+
 }
