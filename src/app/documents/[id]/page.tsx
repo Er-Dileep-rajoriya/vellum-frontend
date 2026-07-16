@@ -1,3 +1,4 @@
+import { auth } from "@/auth";
 import { DocumentWorkspace } from "@/components/editor/DocumentWorkspace";
 
 /**
@@ -16,5 +17,10 @@ export default async function DocumentPage({
 }) {
   const { id } = await params;
 
-  return <DocumentWorkspace documentId={id} />;
+  // Identity is resolved on the server and passed down: the share panel derives the viewer's role
+  // (and thus whether they may invite/manage) by matching this id against the collaborator roster.
+  const session = await auth();
+  const currentUserId = session?.user?.id ?? null;
+
+  return <DocumentWorkspace documentId={id} currentUserId={currentUserId} />;
 }

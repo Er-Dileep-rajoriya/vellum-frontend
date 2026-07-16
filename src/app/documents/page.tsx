@@ -1,3 +1,4 @@
+import { auth } from "@/auth";
 import { DocumentList } from "@/components/documents/DocumentList";
 
 /**
@@ -12,11 +13,17 @@ import { DocumentList } from "@/components/documents/DocumentList";
  * require the network. But the shell, the header, and the skeleton do not, and they should be on
  * screen instantly.
  */
-export default function DocumentsPage() {
+export default async function DocumentsPage() {
+  // Resolve identity on the server (there is no client SessionProvider) and hand it down. The list
+  // needs it to know which action a row gets: an owner deletes, everyone else leaves — and "leave"
+  // is a DELETE on *your own* collaborator row, so it needs your id.
+  const session = await auth();
+  const currentUserId = session?.user?.id ?? null;
+
   return (
     <div className="mx-auto w-full max-w-3xl flex-1 px-6 py-12">
       <h1 className="mb-8 text-2xl font-semibold tracking-tight">Documents</h1>
-      <DocumentList />
+      <DocumentList currentUserId={currentUserId} />
     </div>
   );
 }

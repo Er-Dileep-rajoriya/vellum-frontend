@@ -1,9 +1,10 @@
 "use client";
 
-import { ArrowLeft, History } from "lucide-react";
+import { ArrowLeft, History, Users } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+import { SharePanel } from "@/components/collaborators/SharePanel";
 import { ConnectionIndicator, Presence } from "@/components/Presence";
 import { OfflineBanner, SyncStatus } from "@/components/SyncStatus";
 import { ThemeToggle } from "@/components/ThemeProvider";
@@ -22,8 +23,15 @@ import { Editor } from "./Editor";
  * IndexedDB read — single-digit milliseconds — not a network round trip. If this ever visibly flashes,
  * something has gone wrong with the local-first promise and the fix is upstream, not here.
  */
-export function DocumentWorkspace({ documentId }: { readonly documentId: string }) {
+export function DocumentWorkspace({
+  documentId,
+  currentUserId,
+}: {
+  readonly documentId: string;
+  readonly currentUserId: string | null;
+}) {
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const apiUrl = useMemo(() => apiBaseUrl(), []);
 
   // The public demo is a device-local scratchpad with no server document (see useDocument): no
@@ -67,6 +75,20 @@ export function DocumentWorkspace({ documentId }: { readonly documentId: string 
                 <Presence peers={peers} />
                 <SyncStatus state={sync} onRetry={() => store?.retryFailed()} />
               </>
+            )}
+
+            {/* Sharing is meaningless for the device-local demo doc, so it is hidden there — every
+                other document can be shared, and non-owners see a read-only roster + a way to leave. */}
+            {!isDemo && (
+              <button
+                type="button"
+                onClick={() => setShareOpen(true)}
+                aria-label="Share document"
+                aria-haspopup="dialog"
+                className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <Users className="size-4" aria-hidden />
+              </button>
             )}
 
             <button
@@ -119,6 +141,16 @@ export function DocumentWorkspace({ documentId }: { readonly documentId: string 
           />
         )}
       </div>
+
+      {shareOpen && !isDemo && (
+        <SharePanel
+          documentId={documentId}
+          apiUrl={apiUrl}
+          getToken={getToken}
+          currentUserId={currentUserId}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
     </div>
   );
 }
